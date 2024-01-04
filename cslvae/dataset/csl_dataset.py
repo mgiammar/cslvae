@@ -13,28 +13,31 @@ from cslvae.data import TorchMol, PackedTorchMol, NUM_NODE_FEATURES, NUM_EDGE_FE
 
 
 class CSLDataset(Dataset):
-    def __init__(self, reaction_smarts_path: str, synthon_smiles_path: str):
+    def __init__(self, reaction_smarts_path: str, synthon_smiles_path: str, use_explicit_h: bool = False):
+        # If True, then add explicit hydrogens to the molecules during reactions
+        self.use_explicit_h = use_explicit_h
+
         # Load reaction SMARTS and synthon SMILES dataframes
         reaction_df = pd.read_csv(reaction_smarts_path, sep="\s+")
         synthon_df = pd.read_csv(synthon_smiles_path, sep="\s+")
 
         # Map the original reaction_ids to the internal (normalized) reaction_ids
-        reaction_df["orig_reaction_id"] = reaction_df["reaction_id"]
-        reaction_df["reaction_smarts"] = reaction_df["smarts"]
-        orig_reaction_mapper = {name: i for i, name in enumerate(reaction_df["reaction_id"])}
+        reaction_df["orig_reaction_id"] = reaction_df["reaction_id"]  # Just copies the column
+        reaction_df["reaction_smarts"] = reaction_df["smarts"]  # Just copies the column again
+        orig_reaction_mapper = {name: i for i, name in enumerate(reaction_df["reaction_id"])}  # Converts names to indexes
         reaction_df["reaction_id"] = (
             reaction_df["orig_reaction_id"].apply(lambda x: orig_reaction_mapper[x])
-        )
+        )  # Converts to a array of integers each corresponding to a reaction index
 
         # Map the original synthon_ids to the internal (normalized) synthon_ids
-        synthon_df["orig_synthon_id"] = synthon_df["synthon_id"]
-        synthon_df["synthon_smiles"] = synthon_df["smiles"]
+        synthon_df["orig_synthon_id"] = synthon_df["synthon_id"]  # Again copy of column
+        synthon_df["synthon_smiles"] = synthon_df["smiles"]  # Again, copy of column
         synthon_mapper = {
-            smi: i for i, smi in enumerate(sorted(synthon_df["synthon_smiles"].unique()))
+            smi: i for i, smi in enumerate(sorted(synthon_df["synthon_smiles"].unique()))  # Converts names to indexes, keeping only unique smiles
         }
-        synthon_df["synthon_id"] = synthon_df["synthon_smiles"].apply(lambda x: synthon_mapper[x])
+        synthon_df["synthon_id"] = synthon_df["synthon_smiles"].apply(lambda x: synthon_mapper[x])  # Now array of integers corresponding to index of unique smiles
         synthon_df["reaction_id"] = synthon_df["reaction_id"].apply(
-            lambda x: orig_reaction_mapper[x]
+            lambda x: orig_reaction_mapper[x]  # Another array of integers corresponding to the reaction ID for that synthon. NOTE: What about synthons with multiple reactions?
         )
 
         # Form dicts for mapping internal reaction/synthon IDs to originals
@@ -58,6 +61,15 @@ class CSLDataset(Dataset):
         # reactions (i.e., len(libtree) == n_reactions), with the subsequent level corresponding
         # to the reaction R-groups, and the leaves are the normalized synthon_ids (ints) for the
         # synthons contained in the given R-group
+        #
+        # For example, if the zeroth reaction has two R-groups (combines two synthons),
+        # then len(libtree[0]) == 2 where the first element here is the list of all
+        # synthon_ids which contain the first R-group, and the second element is the
+        # list of all synthon_ids which contain the second R-group.
+        #
+        # If a reaction has three total R-groups, then len(libtree[0]) == 3, where each
+        # element in this list is the list of all synthon_ids which contain the given
+        # R-group for the reaction.
         libtree = synthon_df[["reaction_id", "rgroup", "synthon_id"]]
         libtree = libtree.drop_duplicates()
         libtree = (
@@ -98,14 +110,31 @@ class CSLDataset(Dataset):
             self.synthon_df[["synthon_id", "synthon_smiles"]]
             .drop_duplicates()["synthon_smiles"].tolist()
         )
-        self._rgroup_counts = [[len(x) for x in v] for k, v in enumerate(self.libtree)]
+
+        # The attribute _rgroup_counts is a list for every reaction where each entry for
+        # a reaction counts the number of synthons for that reaction for each R-group.
+        #
+        # For example, if a reaction combines two synthons and there are 20 synthons
+        # with the first R-group and 30 synthons with the second R-group, then the entry
+        # for that reaction will be [20, 30].
+        self._rgroup_counts = [[len(x) for x in rxn] for idx, rxn in enumerate(self.libtree)]
+
+        # The attribute _reaction_counts is a list of the number of products for each
+        # reaction calculated by multiplying the total number of synthons which could
+        # react for that reaction (calculated above).
         self._reaction_counts = np.array(
             [np.prod(self._rgroup_counts[k]) for k in range(self.num_reactions)]
         )
+        
+        # Cumulative sum of the number of products for each reaction (1d array with
+        # shape num_reactions + 1)
         self._reaction_counts_cum = np.insert(np.cumsum(self._reaction_counts), 0, 0)
+        
         self._orig_synthon_mapper = orig_synthon_mapper
         self._orig_reaction_mapper = orig_reaction_mapper
-        self._num_products = sum([np.prod([len(y) for y in x]) for x in self.libtree])
+        
+
+        self._num_products = sum([np.prod([len(synthon_set) for synthon_set in rxn]) for rxn in self.libtree])
         self._num_rgroups = sum([len(x) for x in self._rgroup_counts])
 
     def get_internal_synthon_id(self, orig_synthon_id) -> int:
@@ -139,14 +168,36 @@ class CSLDataset(Dataset):
         return self._num_products
 
     def get_product_ids_by_reaction_id(self, reaction_id: int) -> Iterable[int]:
+        """Returns the all the possible product IDs for a given reaction ID. Each
+        product's ID is an integer in the range [0, num_products), and product IDs
+        appear in the order which they are produced. For example, products from the
+        first reaction will have IDs lower than products from the second reaction.
+
+        Arguments:
+            (int) reaction_id: The reaction ID for which to return the product IDs.
+        """
         return range(
             self._reaction_counts_cum[reaction_id], self._reaction_counts_cum[reaction_id + 1]
         )
 
     def product2smiles(self, reaction_id: int, synthon_ids: Tuple[int, ...]) -> str:
+        """Given a reaction_id and the synthon_ids to try and react, return the SMILES
+        string for the product molecule.
+        
+        Arguments:
+            (int) reaction_id: The reaction ID.
+            (tuple) synthon_ids: A tuple of the synthon IDs to react.
+        """
         return Chem.MolToSmiles(self.product2mol(reaction_id, synthon_ids))
 
     def product2mol(self, reaction_id: int, synthon_ids: Tuple[int, ...]) -> Chem.rdchem.Mol:
+        """Given a reaction_id and the synthon_ids to try and react, return a RDkit Mol
+        object representing the product molecule.
+        
+        Arguments:
+            (int) reaction_id: The reaction ID.
+            (tuple) synthon_ids: A tuple of the synthon IDs to react.
+        """
         reaction = self.reaction2rxn(reaction_id)
         synthons = tuple(self.synthon2mol(i) for i in synthon_ids)
         product = reaction.RunReactants(synthons)[0][0]
@@ -174,7 +225,10 @@ class CSLDataset(Dataset):
         return self.synthon_smiles[synthon_id]
 
     def synthon2mol(self, synthon_id: int) -> Chem.rdchem.Mol:
-        return Chem.MolFromSmiles(self.synthon2smiles(synthon_id))
+        mol = Chem.MolFromSmiles(self.synthon2smiles(synthon_id))
+        if self.use_explicit_h:
+            mol = Chem.AddHs(mol)
+        return mol
 
     def __len__(self) -> int:
         return self.num_products

@@ -1,0 +1,8 @@
+# Python bytecode files
+*.pyc
+
+# Python egg files
+/cslvae.egg-info/
+
+# Dataset files
+*.tsv
