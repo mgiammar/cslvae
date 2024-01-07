@@ -20,8 +20,12 @@ class CSLVAEDB(nn.Module):
 
         device = next(self.cslvae.parameters()).device
         make_zeros = partial(torch.zeros, dtype=torch.float, device=device)
-        synthon_keys = make_zeros(self.dataset.num_synthons, self.cslvae.synthon_key_dim)
-        reaction_keys = make_zeros(self.dataset.num_reactions, self.cslvae.reaction_key_dim)
+        synthon_keys = make_zeros(
+            self.dataset.num_synthons, self.cslvae.synthon_key_dim
+        )
+        reaction_keys = make_zeros(
+            self.dataset.num_reactions, self.cslvae.reaction_key_dim
+        )
         rgroup_feats = make_zeros(self.dataset.num_rgroups, self.cslvae.query_dim)
         reaction_feats = make_zeros(self.dataset.num_reactions, self.cslvae.query_dim)
         self.library_tensors = nn.ParameterDict(
@@ -60,16 +64,19 @@ class CSLVAEDB(nn.Module):
         # Select one reaction per molecule via sampling or argmax decision rule
         reaction_logits = self.cslvae.get_reaction_logits(queries, self.library_tensors)
         if reaction_temperature > 0:
-            reactions = add_gumbel_like(reaction_logits / reaction_temperature).max(1).indices
+            reactions = (
+                add_gumbel_like(reaction_logits / reaction_temperature).max(1).indices
+            )
         else:
             reactions = reaction_logits.max(1).indices
 
         # Select one synthon per R-group position (block) via sampling or argmax
         # decision rule
-        (block2synthon_logits, block2synthon_choices) = (
-            self.cslvae.get_synthon_logits(
-                queries, self.library_tensors, self.library_indexes, reactions,
-            )
+        (block2synthon_logits, block2synthon_choices) = self.cslvae.get_synthon_logits(
+            queries,
+            self.library_tensors,
+            self.library_indexes,
+            reactions,
         )
         if synthon_temperature > 0:
             _, synthon_idx = scatter_max(
@@ -78,12 +85,15 @@ class CSLVAEDB(nn.Module):
                 0,
             )
         else:
-            _, synthon_idx = scatter_max(block2synthon_logits, block2synthon_choices[0], 0)
+            _, synthon_idx = scatter_max(
+                block2synthon_logits, block2synthon_choices[0], 0
+            )
         synthons = block2synthon_choices[1][synthon_idx]
 
         # Decode the products and subsequently the keys
         idx = torch.nn.functional.pad(
-            self.library_indexes["n_rgroups_by_reaction"][reactions].cumsum(0), (1, 0),
+            self.library_indexes["n_rgroups_by_reaction"][reactions].cumsum(0),
+            (1, 0),
         )
         products = [
             (reactions[i].item(), tuple(j.item() for j in synthons[start:end]))
@@ -115,21 +125,33 @@ class CSLVAEDB(nn.Module):
         )
 
         device = next(self.cslvae.parameters()).device
+        
         print(f"Encoding {num_synthons:,} synthons.")
+        
         self.cslvae.eval()
         synthon_feats = torch.zeros(
-            (self.dataset.num_synthons, self.cslvae.query_dim), dtype=torch.float, device=device,
+            (self.dataset.num_synthons, self.cslvae.query_dim),
+            dtype=torch.float,
+            device=device,
         )
+
         with torch.no_grad():
             start_time = time.time()
+
+            # for batch in dataloader:
             for batch_iter, batch in enumerate(dataloader):
+                print(f"Batch {batch_iter + 1} of {max_iters}.")
                 synthons = batch.get("molecules").to(device)
                 idx = batch.get("idx").to(device)
                 synthon_feats[idx] = self.cslvae.encode_synthons(synthons)
 
-            print(f"Synthon encoding complete after {time.time() - start_time:.2f} seconds.")
+            print(
+                f"Synthon encoding complete after {time.time() - start_time:.2f} seconds."
+            )
 
-            library_tensors = self.cslvae.encode_library(synthon_feats, self.library_indexes)
+            library_tensors = self.cslvae.encode_library(
+                synthon_feats, self.library_indexes
+            )
 
             self.library_tensors.synthon_keys[:] = library_tensors["synthon_keys"]
             self.library_tensors.rgroup_feats[:] = library_tensors["rgroup_feats"]

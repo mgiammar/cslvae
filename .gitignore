@@ -6,3 +6,9 @@
 
 # Dataset files
 *.tsv
+*.csv
+
+# Analysis Jupyter notebooks
+/notebooks/*/
+
+.DS_Store

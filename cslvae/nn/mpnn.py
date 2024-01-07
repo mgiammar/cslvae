@@ -33,9 +33,15 @@ class EdgeMessagePassingLayer(nn.Module):
         # Edge model
         self.edge_net = nn.ModuleDict()
         self.edge_net["node_row_fc0"] = nn.Linear(self.node_dim, self.hidden_dim)
-        self.edge_net["node_col_fc0"] = nn.Linear(self.node_dim, self.hidden_dim, bias=False)
-        self.edge_net["edge_fc0"] = nn.Linear(self.edge_dim, self.hidden_dim, bias=False)
-        self.edge_net["graph_fc0"] = nn.Linear(self.graph_dim, self.hidden_dim, bias=False)
+        self.edge_net["node_col_fc0"] = nn.Linear(
+            self.node_dim, self.hidden_dim, bias=False
+        )
+        self.edge_net["edge_fc0"] = nn.Linear(
+            self.edge_dim, self.hidden_dim, bias=False
+        )
+        self.edge_net["graph_fc0"] = nn.Linear(
+            self.graph_dim, self.hidden_dim, bias=False
+        )
         self.edge_net["fc1"] = nn.Linear(self.hidden_dim, self.edge_dim + use_attention)
         if self.drop_rate > 0:
             self.edge_net["dropout"] = nn.Dropout(self.drop_rate)
@@ -49,9 +55,12 @@ class EdgeMessagePassingLayer(nn.Module):
         # Node model
         self.node_net = nn.ModuleDict()
         self.node_net["node_fc0"] = nn.Linear(self.node_dim, self.hidden_dim)
-        self.node_net["edge_fc0"] = nn.Linear(self.edge_dim, self.hidden_dim, bias=False)
+        self.node_net["edge_fc0"] = nn.Linear(
+            self.edge_dim, self.hidden_dim, bias=False
+        )
         self.node_net["fc1"] = nn.Linear(
-            self.hidden_dim, self.node_dim + self.graph_dim + use_attention,
+            self.hidden_dim,
+            self.node_dim + self.graph_dim + use_attention,
         )
         if self.drop_rate > 0:
             self.node_net["dropout"] = nn.Dropout(self.drop_rate)
@@ -72,7 +81,10 @@ class EdgeMessagePassingLayer(nn.Module):
         row_graph_index, col_graph_index = graph_index[row], graph_index[col]
         assert torch.equal(row_graph_index, col_graph_index)
         (node_feats_row, node_feats_col, edge_feats_, graph_feats_) = (
-            node_feats, node_feats, edge_feats, graph_feats
+            node_feats,
+            node_feats,
+            edge_feats,
+            graph_feats,
         )
         if self.normalize:
             node_feats_row = self.edge_net.node_row_norm(node_feats_row)
@@ -84,7 +96,10 @@ class EdgeMessagePassingLayer(nn.Module):
         edge_feats_ = self.edge_net.edge_fc0(edge_feats_.relu())
         graph_feats_ = self.edge_net.graph_fc0(graph_feats_.relu())
         carry = (
-            node_feats_row[row] + node_feats_col[col] + edge_feats_ + graph_feats_[row_graph_index]
+            node_feats_row[row]
+            + node_feats_col[col]
+            + edge_feats_
+            + graph_feats_[row_graph_index]
         )
         if self.drop_rate > 0:
             carry = self.edge_net.dropout(carry)
@@ -110,6 +125,7 @@ class EdgeMessagePassingLayer(nn.Module):
         edge_attn: Optional[Tensor] = None,
     ) -> Tuple[Tensor, Tensor]:
         row, col = edge_index
+
         if self.aggregate == "attn":
             assert edge_attn is not None
             edge_messages = scatter_sum(edge_feats * edge_attn, row, 0)
@@ -122,27 +138,37 @@ class EdgeMessagePassingLayer(nn.Module):
             elif self.aggregate == "sum":
                 edge_messages = scatter_sum(edge_feats, row, 0)
             else:
-                raise ValueError("aggregate must be set to 'attn', 'max', 'mean', or 'sum'.")
+                raise ValueError(
+                    "aggregate must be set to 'attn', 'max', 'mean', or 'sum'."
+                )
+
         node_feats_ = node_feats
+
         if self.normalize:
             node_feats_ = self.node_net.node_norm(node_feats_)
             edge_messages = self.node_net.edge_norm(edge_messages)
+
         node_feats_ = self.node_net.node_fc0(node_feats_.relu())
         edge_messages = self.node_net.edge_fc0(edge_messages.relu())
         carry = node_feats_ + edge_messages
+
         if self.drop_rate > 0:
             carry = self.node_net.dropout(carry)
+
         if self.normalize:
             carry = self.node_net.hidden_norm(carry)
+
         carry = self.node_net.fc1(carry.relu())
         if self.aggregate == "attn":
-            node_feats_, carry, node_attn_logit = (
-                torch.split(carry, [self.node_dim, self.graph_dim, 1], dim=1)
+            node_feats_, carry, node_attn_logit = torch.split(
+                carry, [self.node_dim, self.graph_dim, 1], dim=1
             )
             node_attn = node_attn_logit.sigmoid()
             graph_feats_ = scatter_sum(carry * node_attn, graph_index, dim=0)
         else:
-            node_feats_, carry = torch.split(carry, [self.node_dim, self.graph_dim], dim=1)
+            node_feats_, carry = torch.split(
+                carry, [self.node_dim, self.graph_dim], dim=1
+            )
             if self.aggregate == "max":
                 graph_feats_ = scatter_max(carry, graph_index, dim=0)[0]
             elif self.aggregate == "mean":
@@ -150,7 +176,9 @@ class EdgeMessagePassingLayer(nn.Module):
             elif self.aggregate == "sum":
                 graph_feats_ = scatter_sum(carry, graph_index, dim=0)
             else:
-                raise Exception("aggregate must be set to 'attn', 'max', 'mean', or 'sum'.")
+                raise Exception(
+                    "aggregate must be set to 'attn', 'max', 'mean', or 'sum'."
+                )
         if self.residual:
             node_feats_ = node_feats + node_feats_
             graph_feats_ = graph_feats + graph_feats_
@@ -165,10 +193,19 @@ class EdgeMessagePassingLayer(nn.Module):
         graph_index: LongTensor,
     ) -> Tuple[Tensor, Tensor, Tensor]:
         edge_feats, edge_attn = self.edge_model(
-            node_feats, edge_feats, edge_index, graph_feats, graph_index,
+            node_feats,
+            edge_feats,
+            edge_index,
+            graph_feats,
+            graph_index,
         )
         node_feats, graph_feats = self.node_model(
-            node_feats, edge_feats, edge_index, graph_feats, graph_index, edge_attn,
+            node_feats,
+            edge_feats,
+            edge_index,
+            graph_feats,
+            graph_index,
+            edge_attn,
         )
         return node_feats, edge_feats, graph_feats
 
@@ -217,6 +254,10 @@ class EdgeMessagePassingNetwork(nn.Module):
     ) -> Tuple[Tensor, Tensor, Tensor]:
         for layer in self.layers:
             node_feats, edge_feats, graph_feats = layer(
-                node_feats, edge_feats, edge_index, graph_feats, graph_index,
+                node_feats,
+                edge_feats,
+                edge_index,
+                graph_feats,
+                graph_index,
             )
         return node_feats, edge_feats, graph_feats

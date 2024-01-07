@@ -13,7 +13,12 @@ class TorchMol:
         self.smiles = str(smiles)
         fn = lambda mol: Chem.RemoveHs(mol) if remove_hydrogens else mol
         self.mol = fn(Chem.MolFromSmiles(self.smiles))
-        self.node_features, self.edge_features, self.edge_index, self.graph_index = self.process()
+        (
+            self.node_features,
+            self.edge_features,
+            self.edge_index,
+            self.graph_index,
+        ) = self.process()
 
     def __len__(self) -> int:
         return self.num_graphs
@@ -24,11 +29,16 @@ class TorchMol:
 
     def process(self) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         # Get node and edge features, as well as edge indexes
-        node_features: List[List[bool]] = [get_atom_features(atom) for atom in self.mol.GetAtoms()]
-        edge_features: List[List[bool]] = [get_bond_features(bond) for bond in self.mol.GetBonds()]
+        node_features: List[List[bool]] = [
+            get_atom_features(atom) for atom in self.mol.GetAtoms()
+        ]  # (num_atoms, 50)
+        edge_features: List[List[bool]] = [
+            get_bond_features(bond) for bond in self.mol.GetBonds()
+        ]  # (num_bonds, 12)
         edge_index: List[List[int]] = [
-            [bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()] for bond in self.mol.GetBonds()
-        ]
+            [bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()]
+            for bond in self.mol.GetBonds()
+        ]  # (num_bonds, 2)
 
         # Make them tensors
         node_features = torch.tensor(node_features, dtype=torch.float)
@@ -83,7 +93,12 @@ class PackedTorchMol:
         super().__init__()
         self.torch_mols: List[TorchMol] = torch_mols
         self.mols: List[Mol] = [torch_mol.mol for torch_mol in self.torch_mols]
-        self.node_features, self.edge_features, self.edge_index, self.graph_index = self.process()
+        (
+            self.node_features,
+            self.edge_features,
+            self.edge_index,
+            self.graph_index,
+        ) = self.process()
 
     def __len__(self) -> int:
         return self.num_graphs
@@ -97,11 +112,16 @@ class PackedTorchMol:
         cum_num_nodes = torch.tensor([0] + num_nodes).cumsum(0)[:-1]
         node_features = torch.cat([tm.node_features for tm in self.torch_mols], 0)
         edge_index = torch.cat(
-            [tm.edge_index + i for i, tm in zip(cum_num_nodes, self.torch_mols)], 1,
+            [tm.edge_index + i for i, tm in zip(cum_num_nodes, self.torch_mols)],
+            1,
         )
         edge_features = torch.cat([tm.edge_features for tm in self.torch_mols], 0)
         graph_index = torch.cat(
-            [i + torch.zeros_like(tm.graph_index) for i, tm in enumerate(self.torch_mols)], 0,
+            [
+                i + torch.zeros_like(tm.graph_index)
+                for i, tm in enumerate(self.torch_mols)
+            ],
+            0,
         )
         return node_features, edge_features, edge_index, graph_index
 

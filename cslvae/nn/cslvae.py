@@ -2,7 +2,13 @@ import os
 import torch
 from torch import distributions as D, nn, tensor, LongTensor, Tensor
 from torch.utils.tensorboard import SummaryWriter
-from torch_scatter import scatter_log_softmax, scatter_max, scatter_mean, scatter_min, scatter_sum
+from torch_scatter import (
+    scatter_log_softmax,
+    scatter_max,
+    scatter_mean,
+    scatter_min,
+    scatter_sum,
+)
 from typing import Dict, Optional, Tuple, Union
 
 from cslvae.data import NUM_NODE_FEATURES, NUM_EDGE_FEATURES, PackedTorchMol, TorchMol
@@ -14,17 +20,17 @@ from .scatter import ModularizedScatter
 
 class CSLVAE(nn.Module):
     def __init__(
-            self,
-            query_dim: int,
-            node_dim: int,
-            edge_dim: int,
-            hidden_dim: int,
-            reaction_key_dim: int,
-            synthon_key_dim: int,
-            num_layers: int,
-            residual: bool = True,
-            normalize: bool = True,
-            aggregate: str = "sum",
+        self,
+        query_dim: int,
+        node_dim: int,
+        edge_dim: int,
+        hidden_dim: int,
+        reaction_key_dim: int,
+        synthon_key_dim: int,
+        num_layers: int,
+        residual: bool = True,
+        normalize: bool = True,
+        aggregate: str = "sum",
     ):
         super().__init__()
         self.query_dim = int(query_dim)
@@ -77,7 +83,9 @@ class CSLVAE(nn.Module):
             nn.ReLU(),
             nn.Linear(self.hidden_dim, self.query_dim),
         )
-        self.rgroup_encoder_pooling_function = ModularizedScatter(scatter_op=scatter_mean)
+        self.rgroup_encoder_pooling_function = ModularizedScatter(
+            scatter_op=scatter_mean
+        )
         self.reaction_encoder_p0 = nn.Sequential(
             nn.Linear(self.query_dim, self.hidden_dim),
             nn.ReLU(),
@@ -88,7 +96,9 @@ class CSLVAE(nn.Module):
             nn.ReLU(),
             nn.Linear(self.hidden_dim, self.query_dim),
         )
-        self.reaction_encoder_pooling_function = ModularizedScatter(scatter_op=scatter_sum)
+        self.reaction_encoder_pooling_function = ModularizedScatter(
+            scatter_op=scatter_sum
+        )
         self.reaction_key_generator = nn.Linear(self.query_dim, self.reaction_key_dim)
         self.synthon_key_generator = nn.Linear(self.query_dim, self.synthon_key_dim)
         self.reaction_query_generator = nn.Sequential(
@@ -102,7 +112,9 @@ class CSLVAE(nn.Module):
             nn.Linear(self.hidden_dim, self.synthon_key_dim),
         )
 
-    def fit(self, dataset: CSLDataset, config: dict, outdir: Optional[str] = None) -> None:
+    def fit(
+        self, dataset: CSLDataset, config: dict, outdir: Optional[str] = None
+    ) -> None:
         # Get devive
         device = next(self.parameters()).device
 
@@ -129,13 +141,14 @@ class CSLVAE(nn.Module):
 
         # Instantiate the dataloader and begin training
         dataloader = dataset.create_dataloader(
-            products_per_reaction, reactions_per_batch, max_iterations,
+            products_per_reaction,
+            reactions_per_batch,
+            max_iterations,
         )
         beta = beta_start - beta_step
         print(f"Beginning training for {max_iterations:,} iterations.")
         self.train()
         for iteration, batch in enumerate(dataloader):
-
             # Update beta every `beta_step_iterations` iterations
             if iteration % beta_step_iterations == 0:
                 beta = min(beta_stop, beta + beta_step)
@@ -158,36 +171,47 @@ class CSLVAE(nn.Module):
 
             # Encode the library
             library_tensors: Dict[str, Tensor] = self.encode_library(
-                synthon_feats, library_indexes,
+                synthon_feats,
+                library_indexes,
             )
 
             # Encode the products
             queries: Tensor = self.encode_molecules(products)
 
             # Get reaction logits
-            product2reaction_logits: Tensor = self.get_reaction_logits(queries, library_tensors)
+            product2reaction_logits: Tensor = self.get_reaction_logits(
+                queries, library_tensors
+            )
 
             # Get R-group assignment logits; uses teacher forcing
             (block2synthon_logits, block2synthon_choices) = self.get_synthon_logits(
-                queries, library_tensors, library_indexes, product2reaction[1],
+                queries,
+                library_tensors,
+                library_indexes,
+                product2reaction[1],
             )
             _, block2synthon_labels = torch.where(
-                (block2synthon_choices.unsqueeze(1) - block2synthon.unsqueeze(2) == 0).all(0)
+                (
+                    block2synthon_choices.unsqueeze(1) - block2synthon.unsqueeze(2) == 0
+                ).all(0)
             )
 
             # Get negative log likelihood components
             product2reaction_logp = product2reaction_logits.log_softmax(1)
             product2reaction_nll = -product2reaction_logp[
-                torch.arange(product2reaction.size(1), device=device), product2reaction[1]
+                torch.arange(product2reaction.size(1), device=device),
+                product2reaction[1],
             ]
             block2synthon_logp = scatter_log_softmax(
-                block2synthon_logits, block2synthon_choices[0], 0,
+                block2synthon_logits,
+                block2synthon_choices[0],
+                0,
             )
             block2synthon_nll = -scatter_sum(
                 block2synthon_logp[block2synthon_labels], block2product[1], 0
             )
 
-            # Get latent space prior and variational posterior 
+            # Get latent space prior and variational posterior
             query_posterior = D.Normal(loc=queries.mean(0), scale=queries.std(0) + 1e-6)
             query_prior = D.Normal(
                 loc=torch.zeros_like(query_posterior.loc),
@@ -204,12 +228,13 @@ class CSLVAE(nn.Module):
             block2synthon_pred = block2synthon_choices[1][
                 scatter_max(block2synthon_logits, block2synthon_choices[0], 0)[1]
             ]
-            product2reaction_correct = (product2reaction[1] == product2reaction_pred).float()
+            product2reaction_correct = (
+                product2reaction[1] == product2reaction_pred
+            ).float()
             block2synthon_correct = (block2synthon[1] == block2synthon_pred).float()
             correct = torch.minimum(
-                product2reaction_correct, scatter_min(block2synthon_correct, block2product[1], 0)[
-                    0
-                ]
+                product2reaction_correct,
+                scatter_min(block2synthon_correct, block2product[1], 0)[0],
             )
             total_accuracy = correct.float().mean()
 
@@ -238,14 +263,20 @@ class CSLVAE(nn.Module):
                 nan_value = torch.zeros(()) / torch.zeros(())
                 if writer is not None:
                     for k, v in metrics_dict.items():
-                        writer.add_scalar(f"{k}", v if v is not None else nan_value, iteration)
+                        writer.add_scalar(
+                            f"{k}", v if v is not None else nan_value, iteration
+                        )
 
             if outdir is not None and checkpoint_iterations > 0:
-                if (iteration % checkpoint_iterations == 0) or (iteration == max_iterations):
+                if (iteration % checkpoint_iterations == 0) or (
+                    iteration == max_iterations
+                ):
                     checkpoint_path = os.path.join(
                         outdir, "checkpoints", f"checkpoint_{iteration}.pt"
                     )
-                    print(f"Check-pointing model iteration {iteration} at {checkpoint_path}.")
+                    print(
+                        f"Check-pointing model iteration {iteration} at {checkpoint_path}."
+                    )
                     state_dict = {
                         "iter": iteration,
                         "model_state_dict": self.state_dict(),
@@ -276,7 +307,9 @@ class CSLVAE(nn.Module):
         return synthon_feats
 
     def encode_library(
-        self, synthon_feats: Tensor, library_indexes: Dict[str, LongTensor],
+        self,
+        synthon_feats: Tensor,
+        library_indexes: Dict[str, LongTensor],
     ) -> Dict[str, Tensor]:
         # Move synthon features to same device as CSLVAE
         device = next(self.parameters()).device
@@ -290,12 +323,14 @@ class CSLVAE(nn.Module):
         synthon_keys = self.synthon_key_generator(synthon_feats)
         rgroup_feats = self.rgroup_encoder_p1(
             self.rgroup_encoder_pooling_function(
-                self.rgroup_encoder_p0(synthon_feats), synthon2rgroup,
+                self.rgroup_encoder_p0(synthon_feats),
+                synthon2rgroup,
             ),
         )
         reaction_feats = self.reaction_encoder_p1(
             self.reaction_encoder_pooling_function(
-                self.reaction_encoder_p0(rgroup_feats), rgroup2reaction,
+                self.reaction_encoder_p0(rgroup_feats),
+                rgroup2reaction,
             ),
         )
         reaction_keys = self.reaction_key_generator(reaction_feats)
@@ -321,7 +356,9 @@ class CSLVAE(nn.Module):
         queries = self.molecular_inference_net(molecule_feats)
         return queries
 
-    def get_reaction_logits(self, queries: Tensor, library_tensors: Dict[str, Tensor]) -> Tensor:
+    def get_reaction_logits(
+        self, queries: Tensor, library_tensors: Dict[str, Tensor]
+    ) -> Tensor:
         # Get device
         device = next(self.parameters()).device
 
@@ -332,7 +369,9 @@ class CSLVAE(nn.Module):
 
         # Select one reaction per molecule (via sampling or argmax decision rule)
         product2reaction_logits = (
-            reaction_queries @ library_tensors["reaction_keys"].T / (self.reaction_key_dim ** 0.5)
+            reaction_queries
+            @ library_tensors["reaction_keys"].T
+            / (self.reaction_key_dim**0.5)
         )
         return product2reaction_logits
 
@@ -361,27 +400,36 @@ class CSLVAE(nn.Module):
         block2rgroup = (
             library_indexes["first_rgroup_by_reaction"][
                 reactions.repeat_interleave(n_rgroups_by_product)
-            ] +
-            idx3
+            ]
+            + idx3
         )
         n_blocks = block2rgroup.size(0)
         blocks = torch.arange(n_blocks, device=device)
         block_feats = (
-            molecule_feats.repeat_interleave(n_rgroups_by_product, 0) +
-            library_tensors["rgroup_feats"][block2rgroup] + 
-            library_tensors["reaction_feats"][library_indexes["rgroup2reaction"][1][block2rgroup]]
+            molecule_feats.repeat_interleave(n_rgroups_by_product, 0)
+            + library_tensors["rgroup_feats"][block2rgroup]
+            + library_tensors["reaction_feats"][
+                library_indexes["rgroup2reaction"][1][block2rgroup]
+            ]
         )
         synthon_queries = self.synthon_query_generator(block_feats)
 
         # Get all eligible synthons for each block
-        idx0 = blocks.repeat_interleave(library_indexes["n_synthons_by_rgroup"][block2rgroup], 0)
+        idx0 = blocks.repeat_interleave(
+            library_indexes["n_synthons_by_rgroup"][block2rgroup], 0
+        )
         idx1 = torch.cat(
-            [library_indexes[f"synthons_where_rgroup_{i.item()}"] for i in block2rgroup], 0,
+            [
+                library_indexes[f"synthons_where_rgroup_{i.item()}"]
+                for i in block2rgroup
+            ],
+            0,
         )
         block2synthon = torch.stack([idx0, idx1])
 
         # Select one synthon per block (through sampling or argmax decision rule)
         block2synthon_logits = batched_lookup(
-            synthon_queries[block2synthon[0]], library_tensors["synthon_keys"][block2synthon[1]],
+            synthon_queries[block2synthon[0]],
+            library_tensors["synthon_keys"][block2synthon[1]],
         )
         return block2synthon_logits, block2synthon

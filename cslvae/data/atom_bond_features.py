@@ -13,7 +13,23 @@ def _one_hot_featurizer(idx: int, length: int) -> List[bool]:
 
 
 def get_default_allowed_elements() -> List[str]:
-    return ["*", "B", "Br", "C", "Cl", "F", "Fe", "I", "N", "O", "P", "S", "Se", "Si", "Sn"]
+    return [
+        "*",
+        "B",
+        "Br",
+        "C",
+        "Cl",
+        "F",
+        "Fe",
+        "I",
+        "N",
+        "O",
+        "P",
+        "S",
+        "Se",
+        "Si",
+        "Sn",
+    ]
 
 
 def get_default_sticky_elements() -> List[str]:
@@ -48,7 +64,12 @@ def get_atom_hybridization_idx(atom: Atom) -> Tuple[int, int]:
 
 def get_atom_chirality_idx(atom: Atom) -> Tuple[int, int]:
     i = atom.GetChiralTag().name
-    types = ["CHI_UNSPECIFIED", "CHI_OTHER", "CHI_TETRAHEDRAL_CW", "CHI_TETRAHEDRAL_CCW"]
+    types = [
+        "CHI_UNSPECIFIED",
+        "CHI_OTHER",
+        "CHI_TETRAHEDRAL_CW",
+        "CHI_TETRAHEDRAL_CCW",
+    ]
     return _get_return(i, types)
 
 
