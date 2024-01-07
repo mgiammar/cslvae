@@ -23,7 +23,10 @@ class SmilesDataset(Dataset):
     def __getitem__(self, idx: int):
         smiles = self.smiles_list[idx]
         try:
-            return {"idx": torch.tensor(idx, dtype=torch.long), "molecules": TorchMol(smiles)}
+            return {
+                "idx": torch.tensor(idx, dtype=torch.long),
+                "molecules": TorchMol(smiles),
+            }
         except:
             return None
 
