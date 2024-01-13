@@ -242,7 +242,7 @@ class CSLDataset(Dataset):
         synthon_ids: Tuple[int, ...],
         reaction: Chem.rdChemReactions.ChemicalReaction,
         synthons: Tuple[Chem.rdchem.Mol, ...],
-        fallback_product: Chem.rdchem.Mol = FALLBACK_PRODUCT,
+        # fallback_product: Chem.rdchem.Mol = FALLBACK_PRODUCT,
     ) -> Chem.rdchem.Mol:
         synthon_perm = list(permutations(synthons))
 
@@ -257,7 +257,7 @@ class CSLDataset(Dataset):
             warnings.warn("Reaction did not produce any products.")
             self.products_with_errors.append(self.product2key(reaction_id, synthon_ids))
             
-            return deepcopy(fallback_product)
+            return deepcopy(FALLBACK_PRODUCT)
 
         return product[0][0]
 
@@ -277,11 +277,7 @@ class CSLDataset(Dataset):
         reaction = self.reaction2rxn(reaction_id)
         synthons = tuple(self.synthon2mol(i) for i in synthon_ids)
         product = reaction.RunReactants(synthons)
-        if len(product) == 0:
-            warnings.warn("Reaction did not produce any products.")
-            self.products_with_errors.append(self.product2key(reaction_id, synthon_ids))
-            
-            return deepcopy(fallback_product)
+        
         # product = self._run_reaction_all_permutations(
         #     reaction_id=reaction_id,
         #     synthon_ids=synthon_ids,
@@ -289,6 +285,21 @@ class CSLDataset(Dataset):
         #     synthons=synthons,
         # )
 
+        # Check if no products were produced
+        if len(product) == 0:
+            warnings.warn("Reaction did not produce any products.")
+            self.products_with_errors.append(self.product2key(reaction_id, synthon_ids))
+            
+            return deepcopy(FALLBACK_PRODUCT)
+
+        # Check if the product is chemically valid. Sanitization enum is 0 if
+        # no errors happen during sanitization.
+        if Chem.SanitizeMol(product[0][0], catchErrors=True) != 0:
+            warnings.warn("Reaction produced an invalid product.")
+            self.products_with_errors.append(self.product2key(reaction_id, synthon_ids))
+            
+            return deepcopy(FALLBACK_PRODUCT)
+        
         return product[0][0]
 
     def product2key(
