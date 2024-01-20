@@ -181,7 +181,7 @@ def setup_CSLVAE(
     print(cslvae)
     print(f"Parameter count: {sum(p.numel() for p in cslvae.parameters()):,}.")
 
-    return cslvae, dataset
+    return cslvae, dataset, device
 
 
 def setup_output_directory(args: argparse.ArgumentParser, config: dict) -> str:
@@ -249,6 +249,7 @@ def calculate_vectors_and_properties(
     batch_size: int,
     logP: bool,
     qed: bool,
+    device,
     seed: int = None,
     batch_print_interval: int = 10,
 ) -> Tuple[torch.Tensor, torch.Tensor, List[str]]:
@@ -267,8 +268,8 @@ def calculate_vectors_and_properties(
     # TODO: Allow for arbitrary number of properties
     prop_dim = 2 if logP and qed else 1
 
-    props = torch.zeros((num_molecules, prop_dim))
-    z = torch.zeros((num_molecules, cslvae.query_dim))
+    props = torch.zeros((num_molecules, prop_dim), device=device)
+    z = torch.zeros((num_molecules, cslvae.query_dim), device=device)
     smiles = []
 
     # Set the random seed
@@ -288,12 +289,12 @@ def calculate_vectors_and_properties(
             packed_mols = PackedTorchMol([item["product"] for item in items])
 
             # Calculate the latent vectors
-            _z = cslvae.encode_molecules(packed_mols)
+            _z = cslvae.encode_molecules(packed_mols).to(device)
             z[tensor_idx] = _z
 
             # Calculate properties of the molecule
             _prop = _calc_prop_tensor(mols, logP, qed)
-            props[tensor_idx] = torch.Tensor(_prop)
+            props[tensor_idx] = torch.Tensor(_prop).to(device)
 
             # Print progress at each interval
             if batch_num % batch_print_interval == 0:
@@ -315,7 +316,7 @@ def main():
     outdir = setup_output_directory(args, config)
 
     # Setup the model and dataset
-    cslvae, dataset = setup_CSLVAE(args, config)
+    cslvae, dataset, device = setup_CSLVAE(args, config)
 
     # # Setup arguments for property calculator
     # property_functions = []
@@ -333,6 +334,7 @@ def main():
         batch_size=args.batch_size,
         logP=args.logP,
         qed=args.qed,
+        device=device,
     )
 
     dataset = LatentAndPropertyDataset(
