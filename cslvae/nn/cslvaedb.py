@@ -149,6 +149,9 @@ class CSLVAEDB(nn.Module):
                 f"Synthon encoding complete after {time.time() - start_time:.2f} seconds."
             )
 
+            print(f"Encoding reaction library.")
+            start_time = time.time()
+
             library_tensors = self.cslvae.encode_library(
                 synthon_feats, self.library_indexes
             )
@@ -159,5 +162,7 @@ class CSLVAEDB(nn.Module):
             self.library_tensors.reaction_keys[:] = library_tensors["reaction_keys"]
 
             del synthon_feats, library_tensors
-
-            print(f"Library encoding complete.")
+            
+            print(
+                f"Library encoding complete after {time.time() - start_time:.2f} seconds."
+            )
