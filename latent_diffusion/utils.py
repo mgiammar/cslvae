@@ -6,6 +6,8 @@ from typing import List, Dict, Tuple, Union, Callable, Iterable
 
 import numpy as np
 
+import torch
+
 import rdkit
 from rdkit import Chem
 from rdkit.Chem.Crippen import MolLogP
@@ -96,3 +98,31 @@ def array_iter_batch(
             arr[current_idx : current_idx + batch_size],
         )
         current_idx += batch_size
+
+
+def subtract_scaled_noise(
+    x: torch.Tensor,
+    eps: torch.tensor,
+    alphas: torch.Tensor,
+    alphas_tilde: torch.Tensor,
+) -> torch.Tensor:
+    """Utility function for denoising diffusion models to subtract already predicted
+    noise (eps) from a sample (x) using the proper coefficients (alphas, alphas_tilde)
+    from some noise scheduler class. This can perform batched denoising.
+
+    Arguments:
+        (torch.Tensor) x: The sample tensor to denoise
+        (torch.Tensor) eps: The predicted noise on x (computed from external model)
+        (torch.Tensor) alphas: The alphas coefficients from the noise scheduler
+        (torch.Tensor) alphas_tilde: The alphas_tilde coefficients from the noise
+            scheduler
+
+    Returns:
+        (torch.Tensor) x_new: The single-step denoised sample
+    """
+    eps = eps * (1 - alphas)
+    eps = eps / torch.sqrt(1 - alphas_tilde)
+    x_new = x - eps
+    x_new = x_new / torch.sqrt(alphas)
+
+    return x_new
