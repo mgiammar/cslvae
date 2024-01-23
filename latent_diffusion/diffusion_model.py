@@ -111,10 +111,15 @@ class PropertyGuidedDDPM(nn.Module):
 
         return x_new
 
-    def denoise_sample(self, x):
+    def denoise_sample(self, x: torch.Tensor) -> torch.Tensor:
         """Given some tensor x drawn from the latent distribution, denoise it using
         the model and associated noise scheduler.
 
+        Arguments:
+            (torch.Tensor) x: The sample tensor to denoise
+
+        Returns:
+            (torch.Tensor) x_new: The denoised sample with the same shape as x.
         """
         # Iterate automatically over the noise scheduler, in reverse order
         for t, beta, alpha, alpha_tilde in reversed(list(self.noise_scheduler)):
@@ -128,7 +133,7 @@ class PropertyGuidedDDPM(nn.Module):
                 x = x + torch.sqrt(beta) * eps
 
     def _train_single_epoch(self, dataloader, optimizer, criterion, device) -> float:
-        """Takes a single training step where ????"""
+        """Takes a single training step where ???? TODO Complete docstring"""
         tmp_loss = []
         for batch_idx, batch in enumerate(dataloader):
             # Sample time points uniformly from the noise scheduler and get embedding
@@ -147,14 +152,6 @@ class PropertyGuidedDDPM(nn.Module):
             # Predict the noise from the held model
             pred_eps = self(model_input)
 
-            # print("t            \t:", t.dtype)
-            # print("t_emb        \t:", t_emb.dtype)
-            # print("batch        \t:", batch.dtype)
-            # print("batch_noised \t:", batch_noised.dtype)
-            # print("eps          \t:", eps.dtype)
-            # print("model_input  \t:", model_input.dtype)
-            # print("pred_eps     \t:", pred_eps.dtype)
-
             # Compute loss and take gradient step
             optimizer.zero_grad()
             loss = criterion(pred_eps, eps)
@@ -166,8 +163,25 @@ class PropertyGuidedDDPM(nn.Module):
 
         return np.mean(tmp_loss)
 
-    def _train_logging_function(self, epoch, num_epochs, metrics_dict, writer):
-        """TODO: Docstring"""
+    def _train_logging_function(
+        self, logging_iterations, epoch, num_epochs, metrics_dict, writer
+    ) -> None:
+        """Helper function for logging training metrics to the console and tensorboard
+        during training when epoch is a multiple of logging_iterations, or if it is the
+        final epoch. If writer is None, no tensorboard logs are generated.
+
+        Arguments:
+            (int) logging_iterations: How often to print out training information
+            (int) epoch: The current epoch
+            (int) num_epochs: The total number of epochs to train the model
+            (dict) metrics_dict: A dictionary of metrics to log
+            (SummaryWriter) writer: An optional SummaryWriter object to use for logging
+                to tensorboard. If None, no tensorboard logs are generated.
+        """
+        # Skip logging if not at a logging iteration or final epoch
+        if epoch % logging_iterations != 0 and epoch != num_epochs - 1:
+            return
+
         loss = metrics_dict["loss"]
         print(f"Finished epoch {epoch + 1} / {num_epochs}\t", end="")
         print(f"Loss: {loss:.6f}")
@@ -178,8 +192,28 @@ class PropertyGuidedDDPM(nn.Module):
                 writer.add_scalar(f"{metric_key}", metric_value, epoch)
 
     def _train_checkpoint_function(
-        self, epoch, optimizer, metrics_dict, checkpoint_path
-    ):
+        self, checkpoint_iterations, epoch, optimizer, metrics_dict, outdir
+    ) -> None:
+        """Helper function for logging model checkpoints during training at epochs
+        which are multiples of checkpoint_iterations. If outdir is None, no checkpoints
+        are saved.
+
+        Arguments:
+            (int) checkpoint_iterations: How often to save model checkpoints
+            (int) epoch: The current epoch
+            (torch.optim.Optimizer) optimizer: The optimizer object
+            (dict) metrics_dict: A dictionary of metrics to log
+            (str) outdir: The directory to save model checkpoints and tensorboard logs
+                to. If None, no checkpoints or logs are saved.
+        """
+        if outdir is None:
+            return
+
+        # Skip checkpointing if not at a checkpoint iteration
+        if epoch % checkpoint_iterations != 0:
+            return
+
+        checkpoint_path = os.path.join(outdir, f"model_checkpoint_{epoch}.pth")
         state_dict = {
             "epoch": epoch,
             "model_state_dict": self.state_dict(),
@@ -191,30 +225,55 @@ class PropertyGuidedDDPM(nn.Module):
     def fit(
         self,
         dataset: LatentAndPropertyDataset,
-        config: dict,
-        outdir: str = None,
-    ):
+        batch_size: int,
+        num_epochs: int,
+        shuffle_dl: bool,
+        logging_iterations: int,
+        checkpoint_iterations: int,
+        optimizer_cls: torch.optim.Optimizer,
+        optimizer_kwargs: dict,
+        criterion_cls: torch.nn.modules.loss._Loss,
+        outdir: str,
+        log_to_tensorboard: bool = True,
+    ) -> None:
         """Trains the diffusion model based on the held noise scheduler. Model predicts
         added noise to the sample according to: (TODO: add paper / equations)
 
-        Attributes: TODO
-        """
-        device = next(self.parameters()).device
-        writer = None if outdir is None else SummaryWriter(log_dir=outdir)
+        Every logging_iterations epochs, statistics about training are printed to the
+        console, and if a SummaryWriter object is provided, the metrics are logged to
+        tensorboard.
+        Every checkpoint_iterations epochs, the model weights, optimizer state, and some
+        associated statistics are saved to a checkpoint file.
 
-        # Get training hyperparameters from config dictionary
-        batch_size = config["batch_size"]
-        num_epochs = config["num_epochs"]
-        shuffle_dl = config["shuffle_dl"]
-        logging_iterations = config["logging_iterations"]
-        checkpoint_iterations = config["checkpoint_iterations"]
+        Most of the attributes are read in form a configuration file, then passed to
+        to this function as arguments.
+
+        Attributes:
+            (LatentAndPropertyDataset) dataset: The dataset to train on
+            (int) batch_size: The batch size to use during training
+            (int) num_epochs: The total number of epochs to train the model
+            (bool) shuffle_dl: Whether to shuffle the dataloader
+            (int) logging_iterations: How often to print out training information
+            (int) checkpoint_iterations: How often to save model checkpoints
+            (torch.optim.Optimizer) optimizer_cls: The optimizer class to use
+            (dict) optimizer_kwargs: The keyword arguments to pass to the optimizer
+                during instantiation
+            (torch.nn.modules.loss._Loss) criterion_cls: The loss function class to use
+            (str) outdir: The directory to save model checkpoints and tensorboard logs
+                to. If None, no checkpoints or logs are saved.
+            (bool) log_to_tensorboard: An optional bool specifying whether to log
+                metrics to tensorboard. Default is True.
+
+        Returns:
+            None
+        """
+        self.train()
+        device = next(self.parameters()).device
+        writer = SummaryWriter(log_dir=outdir) if log_to_tensorboard else None
 
         # Optimizer from config attributes
-        opt_class_name = config["opt_class_name"]
-        opt_class = getattr(torch.optim, opt_class_name)
-        opt_kwargs = config["opt_kwargs"]
-        optimizer = opt_class(self.parameters(), **opt_kwargs)
-        criterion = nn.MSELoss()  # NOTE: This is fixed
+        optimizer = optimizer_cls(self.parameters(), **optimizer_kwargs)
+        criterion = criterion_cls()
 
         # Create dataloader object from dataset
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -225,36 +284,27 @@ class PropertyGuidedDDPM(nn.Module):
             loss = self._train_single_epoch(dataloader, optimizer, criterion, device)
 
             # Construct metrics dictionary
-            metrics_dict = {
-                "loss": loss,
-                # TODO: Add other metrics
-            }
+            # TODO: Add other metrics
+            metrics_dict = {"loss": loss}
 
-            # Print out training information every logging_iterations epochs
-            if (epoch % logging_iterations == 0) or (epoch == num_epochs - 1):
-                self._train_logging_function(epoch, num_epochs, metrics_dict, writer)
+            # Logging and checkpointing functions internally handle intervals
+            self._train_logging_function(
+                logging_iterations, epoch, num_epochs, metrics_dict, writer
+            )
+            self._train_checkpoint_function(
+                checkpoint_iterations, epoch, optimizer, metrics_dict, outdir
+            )
 
-            # Save model checkpoint every checkpoint_iterations epochs
-            if (
-                (outdir is not None)
-                and (epoch % checkpoint_iterations == 0)
-                or (epoch == num_epochs - 1)
-            ):
-                checkpoint_path = os.path.join(outdir, f"model_checkpoint_{epoch}.pth")
-                self._train_checkpoint_function(
-                    epoch, optimizer, metrics_dict, checkpoint_path
-                )
-
+        # Close tensorboard writer
         if writer is not None:
             writer.close()
 
-        # Save final model
-        if outdir is not None:
-            final_model_path = os.path.join(outdir, "model_checkpoint_final.pth")
-            state_dict = {
-                "epoch": epoch,
-                "model_state_dict": self.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "loss": loss,
-            }
-            torch.save(state_dict, final_model_path)
+        # Save final model state
+        final_model_path = os.path.join(outdir, "model_checkpoint_final.pth")
+        state_dict = {
+            "epoch": epoch,
+            "model_state_dict": self.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "loss": loss,
+        }
+        torch.save(state_dict, final_model_path)
