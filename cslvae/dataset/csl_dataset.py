@@ -256,7 +256,7 @@ class CSLDataset(Dataset):
         if len(product) == 0:
             warnings.warn("Reaction did not produce any products.")
             self.products_with_errors.append(self.product2key(reaction_id, synthon_ids))
-            
+
             return deepcopy(FALLBACK_PRODUCT)
 
         return product[0][0]
@@ -277,7 +277,7 @@ class CSLDataset(Dataset):
         reaction = self.reaction2rxn(reaction_id)
         synthons = tuple(self.synthon2mol(i) for i in synthon_ids)
         product = reaction.RunReactants(synthons)
-        
+
         # product = self._run_reaction_all_permutations(
         #     reaction_id=reaction_id,
         #     synthon_ids=synthon_ids,
@@ -289,7 +289,7 @@ class CSLDataset(Dataset):
         if len(product) == 0:
             warnings.warn("Reaction did not produce any products.")
             self.products_with_errors.append(self.product2key(reaction_id, synthon_ids))
-            
+
             return deepcopy(FALLBACK_PRODUCT)
 
         # Check if the product is chemically valid. Sanitization enum is 0 if
@@ -297,9 +297,9 @@ class CSLDataset(Dataset):
         if Chem.SanitizeMol(product[0][0], catchErrors=True) != 0:
             warnings.warn("Reaction produced an invalid product.")
             self.products_with_errors.append(self.product2key(reaction_id, synthon_ids))
-            
+
             return deepcopy(FALLBACK_PRODUCT)
-        
+
         return product[0][0]
 
     def product2key(
@@ -396,6 +396,11 @@ class CSLDataset(Dataset):
             def __init__(
                 self_, dataset, products_per_reaction, num_reactions, max_iterations
             ):
+                if num_reactions >= dataset.num_reactions:
+                    raise ValueError(
+                        "Cannot sample more reactions than exist in dataset."
+                    )
+
                 self_.dataset = dataset
                 self_.products_per_reaction = int(products_per_reaction)
                 self_.num_reactions = int(num_reactions)

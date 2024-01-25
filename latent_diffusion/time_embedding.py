@@ -9,6 +9,20 @@ import torch
 class TimeEmbedding(ABC):
     """Instances of this class handles creating a time embedding vector."""
 
+    @classmethod
+    def parse_config(cls, config: dict):
+        """TODO: docstring"""
+        dim = int(config["dim"])
+        _type = config["type"]
+
+        # TODO: Make this an arbitrary map to classes
+        if _type == "identity":
+            return IdentityTimeEmbedding(dim=dim)
+        elif _type == "sinusoidal":
+            return SinusoidalTimeEmbedding(dim=dim)
+        else:
+            raise ValueError(f"Unrecognized time embedding type: {_type}")
+
     def __init__(self, name: str, dim: int):
         self.name = name
         self.dim = dim

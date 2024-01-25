@@ -1,6 +1,7 @@
 from typing import List
 import numpy as np
 import os
+import ast
 
 import torch
 from torch import nn
@@ -17,6 +18,9 @@ from latent_diffusion.utils import subtract_scaled_noise
 # TODO: Better logic for sending tensors to/initializing tensors on the proper device
 
 
+WEIGHT_PREFIX = "diffusion_model_checkpoint"
+
+
 class PropertyGuidedDDPM(nn.Module):
     """Latent Diffusion Denoising Probabilistic Model for performing diffusion in latent
     CSLVAE space. This class can can accept in a time-dependent property prediction
@@ -30,35 +34,101 @@ class PropertyGuidedDDPM(nn.Module):
 
     """
 
+    @classmethod
+    def parse_config(cls, config: dict):
+        """Given a model configuration dictionary, construct a PropertyGuidedDDPM object
+        with the appropriate attributes. Dictionary values could be of type string (for
+        example, if the config is read in from a YAML file), and values will be cast
+        to the appropriate type.
+
+        Arguments:
+            (dict) config: The model configuration dictionary
+
+        Returns:
+            (PropertyGuidedDDPM) model: The constructed PropertyGuidedDDPM object
+        """
+        # Check for missing keys
+        REQUIRED_KEYS = {
+            "input_dim",
+            "time_embedding_dim",
+            "num_hidden_layers",
+            "hidden_layer_shapes",
+            "time_embedding",
+            "noise_scheduler",
+            # "activation",  # Not required, defaults to ReLU
+        }
+        missing_keys = REQUIRED_KEYS - set(config.keys())
+        if len(missing_keys) > 0:
+            raise ValueError(f"Missing keys in config dictionary: {missing_keys}")
+
+        # Get scalar values from the config dictionary
+        input_dim = int(config["input_dim"])
+        time_embedding_dim = int(config["time_embedding_dim"])
+        num_hidden_layers = int(config["num_hidden_layers"])
+        hidden_layer_shapes = config["hidden_layer_shapes"]
+        if isinstance(hidden_layer_shapes, str):
+            hidden_layer_shapes = ast.literal_eval(hidden_layer_shapes)
+        
+        # Activation class and keyword arguments
+        # NOTE: Could make this some partial expression called again during initialization, but make it more complicated...
+        activation_cls = config.get("activation_cls", "ReLU")
+        activation_cls = getattr(nn, activation_cls)
+        activation_kwargs = config.get("activation_kwargs", {})
+        if isinstance(activation_kwargs, str):
+            hidden_layer_shapes = ast.literal_eval(activation_kwargs)
+
+        # Parse the other objects from the config dictionary
+        time_embedding = TimeEmbedding.parse_config(config["time_embedding"])
+        noise_scheduler = DiscreteNoiseScheduler.parse_config(config["noise_scheduler"])
+
+        return cls(
+            input_dim=input_dim,
+            time_embedding_dim=time_embedding_dim,
+            num_hidden_layers=num_hidden_layers,
+            hidden_layer_shapes=hidden_layer_shapes,
+            time_embedding=time_embedding,
+            noise_scheduler=noise_scheduler,
+            activation_cls=activation_cls,
+            activation_kwargs=activation_kwargs,
+        )
+
     def __init__(
         self,
-        latent_dim: int,
+        input_dim: int,
         time_embedding_dim: int,
-        num_layers: int,
-        hidden_dims: List[int],
+        num_hidden_layers: int,
+        hidden_layer_shapes: List[int],
         time_embedding: TimeEmbedding,
         noise_scheduler: DiscreteNoiseScheduler,
-        activation: nn.Module = nn.ReLU(),  # NOTE: Does this cause a problem with duplicated instances?
+        activation_cls: nn.Module,
+        activation_kwargs: dict,
     ):
         super().__init__()
 
         # Check for valid inputs
-        if num_layers != len(hidden_dims):
+        if num_hidden_layers != len(hidden_layer_shapes):
             raise ValueError(
-                f"num_layers must equal the length of hidden_dims. Got {num_layers} "
-                f"and {len(hidden_dims)}, respectively."
+                f"num_hidden_layers must equal the length of hidden_layer_shapes. Got "
+                f"{num_hidden_layers} and {len(hidden_layer_shapes)}, respectively."
             )
+
+        if len(hidden_layer_shapes) == 0:
+            raise ValueError("hidden_dims must have at least one element.")
 
         # Add all layers to a sequential module
         modules = []
-        modules.append(nn.Linear(latent_dim + time_embedding_dim, hidden_dims[0]))
-        modules.append(activation)
+        modules.append(
+            nn.Linear(input_dim + time_embedding_dim, hidden_layer_shapes[0])
+        )
+        modules.append(activation_cls(**activation_kwargs))
 
-        for i in range(num_layers - 1):
-            modules.append(nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
-            modules.append(activation)
+        for i in range(num_hidden_layers - 1):
+            modules.append(
+                nn.Linear(hidden_layer_shapes[i], hidden_layer_shapes[i + 1])
+            )
+            modules.append(activation_cls(**activation_kwargs))
 
-        modules.append(nn.Linear(hidden_dims[-1], latent_dim))
+        modules.append(nn.Linear(hidden_layer_shapes[-1], input_dim))
 
         self.sequential = nn.Sequential(*modules)
 
@@ -213,7 +283,7 @@ class PropertyGuidedDDPM(nn.Module):
         if epoch % checkpoint_iterations != 0:
             return
 
-        checkpoint_path = os.path.join(outdir, f"model_checkpoint_{epoch}.pth")
+        checkpoint_path = os.path.join(outdir, f"{WEIGHT_PREFIX}_{epoch}.pth")
         state_dict = {
             "epoch": epoch,
             "model_state_dict": self.state_dict(),
@@ -300,11 +370,4 @@ class PropertyGuidedDDPM(nn.Module):
             writer.close()
 
         # Save final model state
-        final_model_path = os.path.join(outdir, "model_checkpoint_final.pth")
-        state_dict = {
-            "epoch": epoch,
-            "model_state_dict": self.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "loss": loss,
-        }
-        torch.save(state_dict, final_model_path)
+        _train_checkpoint_function(1, "final", optimizer, metrics_dict, outdir)

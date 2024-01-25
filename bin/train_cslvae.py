@@ -15,39 +15,69 @@ from cslvae.nn import CSLVAE
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description="Run CSLVAE training.", formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        description="Run CSLVAE training.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "--reaction_smarts_path", type=str, action="store", required=True,
+        "--reaction_smarts_path",
+        type=str,
+        action="store",
+        required=True,
         help="Path to reaction SMARTS file",
     )
     parser.add_argument(
-        "--synthon_smiles_path", type=str, action="store", required=True,
+        "--synthon_smiles_path",
+        type=str,
+        action="store",
+        required=True,
         help="Path to synthon SMILES file",
     )
     parser.add_argument(
-        "--config", type=str, action="store", required=True,
+        "--config",
+        type=str,
+        action="store",
+        required=True,
         help="Path to YAML file specifying the configuration.",
     )
     parser.add_argument(
-        "--output_dir", type=str, action="store", required=False, default=os.getcwd(),
+        "--output_dir",
+        type=str,
+        action="store",
+        required=False,
+        default=os.getcwd(),
         help="Path to output directory. If not provided, defaults to current working directory.",
     )
     parser.add_argument(
-        "--run_id", type=str, action="store", required=False, default=None,
+        "--run_id",
+        type=str,
+        action="store",
+        required=False,
+        default=None,
         help="Run ID, used in constructing output directories and in logs to tensorboard. If not "
-             "provided, a random 16-character alpha-numeric run_id will be generated.",
+        "provided, a random 16-character alpha-numeric run_id will be generated.",
     )
     parser.add_argument(
-        "--weights_path", type=str, action="store", required=False, default=None,
+        "--weights_path",
+        type=str,
+        action="store",
+        required=False,
+        default=None,
         help="Path to existing model weights. If no provided, weights are randomly initialized.",
     )
     parser.add_argument(
-        "--device", type=str, action="store", required=False, default="",
-        help="Device used for model training."
+        "--device",
+        type=str,
+        action="store",
+        required=False,
+        default="",
+        help="Device used for model training.",
     )
     parser.add_argument(
-        "--disable_rdkit_logs", type=bool, action="store", required=False, default=True,
+        "--disable_rdkit_logs",
+        type=bool,
+        action="store",
+        required=False,
+        default=True,
         help="Setting this to False will include RDKit logs in the logfile.",
     )
     return parser.parse_args()
@@ -66,12 +96,14 @@ def main():
 
     # Use the user-provided run id or generate a random 16-character alpha-numeric id
     if args.run_id is None:
-        run_id = "".join(random.choice(string.ascii_lowercase + string.digits) for _ in range(16))
+        run_id = "".join(
+            random.choice(string.ascii_lowercase + string.digits) for _ in range(16)
+        )
     else:
         run_id = str(args.run_id)
 
-    # Create output directories, start logs, and save a copy of the config file (in case needed as
-    # reference)
+    # Create output directories, start logs, and save a copy of the config file
+    # (in case needed as reference)
     outdir = os.path.join(args.output_dir, run_id)
     os.makedirs(os.path.join(outdir, "checkpoints"))
     shutil.copy(args.config, os.path.join(outdir, "config.yaml"))

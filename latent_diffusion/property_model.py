@@ -6,6 +6,7 @@ TODO: Docstring
 
 
 import os
+import ast
 from typing import List, Union, Tuple
 
 import torch
@@ -26,38 +27,94 @@ class PropertyModel(nn.Module):
 
     """
 
+    @classmethod
+    def parse_config(cls, config: dict):
+        """Parses the configuration dictionary for the property model.
+
+        Arguments:
+            (dict) config: The configuration dictionary for the property model.
+        """
+        REQUIRED_KEYS = {
+            "input_dim",
+            "output_dim",
+            "num_hidden_layers",
+            "hidden_layer_shapes",
+            # "activation_cls",  # Not required since ReLU is default
+            # "activation_kwargs",
+        }
+
+        # Check for required keys
+        missing_keys = REQUIRED_KEYS - set(config.keys())
+        if len(missing_keys) > 0:
+            raise ValueError(f"Missing keys in config dictionary: {missing_keys}")
+
+        input_dim = int(config["input_dim"])
+        output_dim = int(config["output_dim"])
+        num_hidden_layers = int(config["num_hidden_layers"])
+        hidden_layer_shapes = config["hidden_layer_shapes"]
+        if isinstance(hidden_layer_shapes, str):
+            hidden_layer_shapes = ast.literal_eval(hidden_layer_shapes)
+
+        # Activation class and keyword arguments
+        activation_cls = config.get("activation_cls", "ReLU")
+        activation_cls = getattr(torch.nn, activation_cls)
+        activation_kwargs = config.get("activation_kwargs", {})
+        if isinstance(activation_kwargs, str):
+            activation_kwargs = ast.literal_eval(activation_kwargs)
+
+        return PropertyModel(
+            input_dim=input_dim,
+            output_dim=output_dim,
+            num_hidden_layers=num_hidden_layers,
+            hidden_layer_shapes=hidden_layer_shapes,
+            activation_cls=activation_cls,
+            activation_kwargs=activation_kwargs,
+        )
+
     def __init__(
         self,
         input_dim: int,
         output_dim: int,
-        hidden_dims: List[int],
-        activation: str = "ReLU",
-        activation_kwargs: dict = None,
+        num_hidden_layers: int,
+        hidden_layer_shapes: List[int],
+        activation_cls: Union[str, nn.Module],
+        activation_kwargs: dict,
     ):
         super().__init__()
 
         # Check for valid inputs
-        if len(hidden_dims) == 0:
+        if num_hidden_layers != len(hidden_layer_shapes):
+            raise ValueError(
+                f"num_hidden_layers must equal the length of hidden_layer_shapes. Got "
+                f"{num_hidden_layers} and {len(hidden_layer_shapes)}, respectively."
+            )
+
+        if len(hidden_layer_shapes) == 0:
             raise ValueError("hidden_dims must have at least one element.")
 
         # Get the activation function and class based on passed arguments
-        try:
-            activation_cls = getattr(torch.nn, activation)
-        except AttributeError:
-            raise ValueError(f"Unrecognized torch activation: {activation}")
-
         activation_kwargs = activation_kwargs if activation_kwargs is not None else {}
+        try:
+            activation_cls = (
+                getattr(torch.nn, activation_cls)
+                if isinstance(activation_cls, str)
+                else activation_cls
+            )
+        except AttributeError:
+            raise ValueError(f"Unrecognized torch activation: {activation_cls}")
 
         # Add all layers to a sequential module
         modules = []
-        modules.append(nn.Linear(input_dim, hidden_dims[0]))
+        modules.append(nn.Linear(input_dim, hidden_layer_shapes[0]))
         modules.append(activation_cls(**activation_kwargs))
 
-        for i in range(len(hidden_dims) - 1):
-            modules.append(nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
+        for i in range(len(hidden_layer_shapes) - 1):
+            modules.append(
+                nn.Linear(hidden_layer_shapes[i], hidden_layer_shapes[i + 1])
+            )
             modules.append(activation_cls(**activation_kwargs))
 
-        modules.append(nn.Linear(hidden_dims[-1], output_dim))
+        modules.append(nn.Linear(hidden_layer_shapes[-1], output_dim))
 
         self.sequential = nn.Sequential(*modules)
 
@@ -259,18 +316,73 @@ class TimeDependentPropertyModel(PropertyModel):
 
     """
 
+    @classmethod
+    def parse_config(cls, config: dict):
+        """Parses the configuration dictionary for the property model.
+
+        Arguments:
+            (dict) config: The configuration dictionary for the property model.
+        """
+        REQUIRED_KEYS = {
+            "input_dim",
+            "output_dim",
+            "time_embedding_dim",
+            "num_hidden_layers",
+            "hidden_layer_shapes",
+            # "activation_cls",  # Not required since ReLU is default
+            # "activation_kwargs",
+            "time_embedding",
+            "noise_scheduler",
+        }
+
+        # Check for required keys
+        missing_keys = REQUIRED_KEYS - set(config.keys())
+        if len(missing_keys) > 0:
+            raise ValueError(f"Missing keys in config dictionary: {missing_keys}")
+
+        input_dim = int(config["input_dim"])
+        time_embedding_dim = int(config["time_embedding_dim"])
+        output_dim = int(config["output_dim"])
+        num_hidden_layers = int(config["num_hidden_layers"])
+        hidden_layer_shapes = config["hidden_layer_shapes"]
+        if isinstance(hidden_layer_shapes, str):
+            hidden_layer_shapes = ast.literal_eval(hidden_layer_shapes)
+
+        # Activation class and keyword arguments
+        activation_cls = config.get("activation_cls", "ReLU")
+        activation_cls = getattr(torch.nn, activation_cls)
+        activation_kwargs = config.get("activation_kwargs", {})
+        if isinstance(activation_kwargs, str):
+            activation_kwargs = ast.literal_eval(activation_kwargs)
+
+        # Parse the time embedding and noise scheduler
+        time_embedding = TimeEmbedding.parse_config(config["time_embedding"])
+        noise_scheduler = DiscreteNoiseScheduler.parse_config(config["noise_scheduler"])
+
+        return TimeDependentPropertyModel(
+            input_dim=input_dim,
+            time_embedding_dim=time_embedding_dim,
+            output_dim=output_dim,
+            num_hidden_layers=num_hidden_layers,
+            hidden_layer_shapes=hidden_layer_shapes,
+            activation_cls=activation_cls,
+            activation_kwargs=activation_kwargs,
+            time_embedding=time_embedding,
+            noise_scheduler=noise_scheduler,
+        )
+
     def __init__(
         self,
         input_dim: int,
         time_embedding_dim: int,
         output_dim: int,
+        num_hidden_layers: int,
+        hidden_layer_shapes: List[int],
+        activation_cls: Union[str, nn.Module],
+        activation_kwargs: dict,
         time_embedding: TimeEmbedding,
         noise_scheduler: TimeEmbedding,
-        hidden_dims: List[int],
-        activation: str = "ReLU",
-        activation_kwargs: dict = None,
     ):
-        # NOTE: Time embedding dimension can be inferred from the time embedding object?
         if time_embedding_dim != time_embedding.dim:
             raise ValueError(
                 "The `time_embedding_dim` argument must match the `time_embedding` "
@@ -282,8 +394,9 @@ class TimeDependentPropertyModel(PropertyModel):
         super().__init__(
             input_dim=input_dim + time_embedding_dim,  # Add time embedding dimension
             output_dim=output_dim,
-            hidden_dims=hidden_dims,
-            activation=activation,
+            num_hidden_layers=num_hidden_layers,
+            hidden_layer_shapes=hidden_layer_shapes,
+            activation_cls=activation_cls,
             activation_kwargs=activation_kwargs,
         )
 

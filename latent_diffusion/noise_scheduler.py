@@ -25,6 +25,18 @@ class DiscreteNoiseScheduler:
             alphas_cumprod held by the scheduler, in that order.
     """
 
+    @classmethod
+    def parse_config(cls, config: dict):
+        beta_start = float(config["beta_start"])
+        beta_stop = float(config["beta_stop"])
+        T = int(config["T"])
+
+        _type = config["type"]
+        if _type == "linear":
+            return LinearNoiseScheduler(beta_start, beta_stop, T)
+        else:
+            raise ValueError(f"Unrecognized noise scheduler type: {_type}")
+
     def __init__(self, betas: Union[list, np.ndarray, torch.Tensor]):
         # Ensure the accepted in beta values are 1-dimensional by casting to tensor
         if not isinstance(betas, (list, np.ndarray, torch.Tensor)):

@@ -1,3 +1,6 @@
+.DS_Store
+.vscode
+
 # Python bytecode files
 *.pyc
 
@@ -8,10 +11,9 @@
 *.tsv
 *.csv
 
-# Analysis Jupyter notebooks
+# Analysis Jupyter notebooks and checkpoints
 /notebooks/*/
-
-.DS_Store
 */.ipynb_checkpoints
 */.ipynb_checkpoints/*
+
 
