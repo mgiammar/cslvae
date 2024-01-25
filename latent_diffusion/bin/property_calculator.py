@@ -101,14 +101,19 @@ def parse_arguments() -> argparse.ArgumentParser:
         help="Batch size for latent variable and property prediction",
     )
     parser.add_argument(
+        "--ring_count",
+        action="store_true",
+        help="Calculate ring count (discrete) on molecules.",
+    )
+    parser.add_argument(
         "--logP",
         action="store_true",
-        help="Calculate logP of molecules.",
+        help="Calculate logP (continuous) of molecules.",
     )
     parser.add_argument(
         "--qed",
         action="store_true",
-        help="Calculate QED of molecules.",
+        help="Calculate QED (continuous) of molecules.",
     )
 
     ### Items for fingerprint calculation ###
@@ -208,7 +213,7 @@ def setup_output_directory(args: argparse.ArgumentParser, config: dict) -> str:
     return str(outdir)
 
 
-def _calc_prop_tensor(mols: List[Chem.Mol], logP: bool, qed: bool) -> torch.Tensor:
+def _calc_prop_tensor(mols: List[Chem.Mol], logP: bool, qed: bool, ring_count: bool) -> torch.Tensor:
     """Calculates the properties of a list of molecules and returns a tensor of shape
     (n, P_d) where n is the number of molecules and P_d is the dimension of the
     properties.
@@ -218,26 +223,21 @@ def _calc_prop_tensor(mols: List[Chem.Mol], logP: bool, qed: bool) -> torch.Tens
 
     Arguments:
         mols (List[Chem.Mol]): List of RDKit Mol objects of the molecules.
-        logP (bool): Whether to calculate the logP of the molecule.
-        qed (bool): Whether to calculate the QED of the molecule.
+        (bool) logP : Whether to calculate the logP of the molecule.
+        (bool) qed : Whether to calculate the QED of the molecule.
+        (bool) ring_count: Whether to calculate the ring count of the molecule.
 
     Returns:
         (torch.Tensor) props: Tensor of shape (n, P_d) where n is the number of
             molecules and P_d is the dimension of the properties.
     """
-    if logP and qed:
-        _logP, _qed = zip(
-            *[
-                calculate_arbitrary_props(mol, [calculate_logP, calculate_QED])
-                for mol in mols
-            ]
-        )
-        _props = [_logP, _qed]
-    else:
-        if logP:
-            _props = [[calculate_logP(mol)] for mol in mols]
-        if qed:
-            _props = [[calculate_QED(mol)] for mol in mols]
+    _props = []
+    if logP:
+        _props.append([calculate_logP(mol) for mol in mols])
+    if qed:
+        _props.append([calculate_QED(mol) for mol in mols])
+    if ring_count:
+        _props.append([mol.GetRingInfo().NumRings() for mol in mols])
 
     return torch.transpose(torch.Tensor(_props), 0, 1)
 
@@ -249,6 +249,7 @@ def calculate_vectors_and_properties(
     batch_size: int,
     logP: bool,
     qed: bool,
+    ring_count: bool,
     device,
     seed: int = None,
     batch_print_interval: int = 10,
@@ -266,7 +267,7 @@ def calculate_vectors_and_properties(
 
     # Allocate space for tensors
     # TODO: Allow for arbitrary number of properties
-    prop_dim = 2 if logP and qed else 1
+    prop_dim = sum([logP, qed, ring_count])
 
     props = torch.zeros((num_molecules, prop_dim), device=device)
     z = torch.zeros((num_molecules, cslvae.query_dim), device=device)
@@ -334,11 +335,20 @@ def main():
         batch_size=args.batch_size,
         logP=args.logP,
         qed=args.qed,
+        ring_count=args.ring_count,
         device=device,
     )
 
+    # Save the dataset
+    property_names = []
+    if args.logP:
+        property_names.append("logP")
+    if args.qed:
+        property_names.append("qed")
+    if args.ring_count:
+        property_names.append("ring_count")
     dataset = LatentAndPropertyDataset(
-        latent_vectors=z, target_properties=prop, smiles=smiles
+        latent_vectors=z, target_properties=prop, property_names=property_names, smiles=smiles
     )
     
     print("Finished calculating properties.")

@@ -380,7 +380,7 @@ class CSLVAE(nn.Module):
         queries: Tensor,
         library_tensors: Dict[str, Tensor],
         library_indexes: Dict[str, LongTensor],
-        reactions: LongTensor,
+        reactions: LongTensor,  # Conditioned on the selected reaction
     ) -> Tuple[Tensor, LongTensor]:
         # Get device
         device = next(self.parameters()).device
@@ -391,6 +391,10 @@ class CSLVAE(nn.Module):
 
         # For each molecular query, we construct a synthon query in each R-group position ("block")
         # of the decoded reaction
+        # n_rgroups_by_product is a tensor of shape (batch_size, R_groups) where
+        # R_groups is the number of R groups per each reaction (i.e. we first select
+        # which reactions will be used to get the synthon logits, then we select 
+        # synthons from the valid set of synthons for each selected reaction)
         n_rgroups_by_product = library_indexes["n_rgroups_by_reaction"][reactions]
         idx0 = n_rgroups_by_product[:-1].cumsum(0)
         idx1 = torch.arange(n_rgroups_by_product.sum(), device=device)

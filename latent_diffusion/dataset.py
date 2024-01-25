@@ -20,6 +20,8 @@ class LatentAndPropertyDataset(TensorDataset):
         (torch.Tensor) target_properties: Tensor of shape (n, P_d) where n is the is the
             number of elements in the dataset and P_d is the dimension of the
                 property/properties.
+        (List[str]) property_names: List of strings which are the names of the
+            properties stored in each column of target_properties.
         (List[str]) smiles: Optional list of SMILES strings for each molecule. Default
             is None.
     """
@@ -28,40 +30,42 @@ class LatentAndPropertyDataset(TensorDataset):
         self,
         latent_vectors: torch.Tensor,
         target_properties: torch.Tensor,
+        property_names: List[str],
         smiles: List[str] = None,
     ):
         self.smiles = smiles
+        self.property_names = property_names
         super().__init__(latent_vectors, target_properties)
 
 
-class FingerprintAndPropertyDataset(TensorDataset):
-    """Class which holds calculated fingerprint of a molecule (feature) and some
-    property (label/target) also associated with the molecule. This is similar to
-    the LatentAndPropertyDataset, but has additional metadata w.r.t. the kind of
-    fingerprint calculated form the molecules. Also holds an optional
-    SMILES string for each molecule.
+# class FingerprintAndPropertyDataset(TensorDataset):
+#     """Class which holds calculated fingerprint of a molecule (feature) and some
+#     property (label/target) also associated with the molecule. This is similar to
+#     the LatentAndPropertyDataset, but has additional metadata w.r.t. the kind of
+#     fingerprint calculated form the molecules. Also holds an optional
+#     SMILES string for each molecule.
 
 
-      Attributes:
-        (torch.Tensor) fingerprints: Tensor of shape (n, F_d) where n is the number
-            of elements in the dataset and F_d is the dimension of the fingerprint.
-        (torch.Tensor) target_properties: Tensor of shape (n, P_d) where n is the is the
-            number of elements in the dataset and P_d is the dimension of the
-                property/properties.
-        (List[str]) smiles: Optional list of SMILES strings for each molecule. Default
-            is None.
+#       Attributes:
+#         (torch.Tensor) fingerprints: Tensor of shape (n, F_d) where n is the number
+#             of elements in the dataset and F_d is the dimension of the fingerprint.
+#         (torch.Tensor) target_properties: Tensor of shape (n, P_d) where n is the is the
+#             number of elements in the dataset and P_d is the dimension of the
+#                 property/properties.
+#         (List[str]) smiles: Optional list of SMILES strings for each molecule. Default
+#             is None.
 
-    TODO: Complete
+#     TODO: Complete
 
-    """
+#     """
 
-    def __init__(
-        self,
-        fingerprints: torch.Tensor,
-        target_properties: torch.Tensor,
-        fingerprint_type: str,
-        smiles: List[str] = None,
-    ):
-        self.fingerprint_type = fingerprint_type
-        self.smiles = smiles
-        super().__init__(fingerprints, target_properties)
+#     def __init__(
+#         self,
+#         fingerprints: torch.Tensor,
+#         target_properties: torch.Tensor,
+#         fingerprint_type: str,
+#         smiles: List[str] = None,
+#     ):
+#         self.fingerprint_type = fingerprint_type
+#         self.smiles = smiles
+#         super().__init__(fingerprints, target_properties)

@@ -6,6 +6,17 @@ etc.) for training a diffusion model on the latent space of the CSLVAE.
 
 import argparse
 import yaml
+from pathlib import Path
+
+import torch
+
+from latent_diffusion.time_embedding import TimeEmbedding
+from latent_diffusion.time_embedding import IdentityTimeEmbedding
+from latent_diffusion.time_embedding import SinusoidalTimeEmbedding
+from latent_diffusion.noise_scheduler import DiscreteNoiseScheduler
+from latent_diffusion.noise_scheduler import LinearNoiseScheduler
+from latent_diffusion.diffusion_model import PropertyGuidedDDPM
+
 
 
 def parse_arguments():
@@ -93,7 +104,7 @@ def setup_output_directory(args: argparse.ArgumentParser, config: dict) -> str:
     """Creates necessary directories for outputs along with exporting information about
     the run.
     """
-    outdir = Path(args.output_dir) / args.run_name
+    outdir = Path(args.outdir) / args.run_name
 
     # Make directory failing on pre-existence as to not overwrite existing data
     outdir.mkdir(parents=True, exist_ok=False)
@@ -116,14 +127,14 @@ def setup_output_directory(args: argparse.ArgumentParser, config: dict) -> str:
 def get_time_embedding_object(config) -> TimeEmbedding:
     # Create the time embedding
     te_config = config["time_embedding"]
-    te_dim = te_config["te_dim"]
+    te_dim = te_config["embedding_dim"]
     te_class = te_config["embedding_type"]
 
     # TODO: Remove if statement hardcoding to allow for more embedding types
     if te_class == "identity":
-        time_embedding = IdentityTimeEmbedding(embedding_dim=te_dim)
+        time_embedding = IdentityTimeEmbedding(dim=te_dim)
     elif te_class == "sinusoidal":
-        time_embedding = SinusoidalTimeEmbedding(embedding_dim=te_dim)
+        time_embedding = SinusoidalTimeEmbedding(dim=te_dim)
     else:
         raise ValueError(f"Unrecognized name for time embedding: {te_class}")
 
@@ -134,8 +145,8 @@ def get_noise_scheduler_object(config: dict) -> DiscreteNoiseScheduler:
     # Create the noise scheduler
     ns_config = config["noise_scheduler"]
     ns_class = ns_config["scheduler_type"]
-    beta_0 = ns_config["beta_0"]
-    beta_T = ns_config["beta_T"]
+    beta_0 = float(ns_config["beta_start"])
+    beta_T = float(ns_config["beta_stop"])
     T = ns_config["T"]
 
     if ns_class == "linear":
@@ -150,14 +161,15 @@ def get_diffusion_model_object(
     config: dict, time_embedding, noise_scheduler
 ) -> PropertyGuidedDDPM:
     # Create the diffusion model
-    activation_cls = getattr(torch.nn, config["activation"])
-    activation_kwargs = config.get("activation_kwargs", {})
+    model_config = config["diffusion_model"]
+    activation_cls = getattr(torch.nn, model_config["activation"])
+    activation_kwargs = model_config.get("activation_kwargs", {})
     activation = activation_cls(**activation_kwargs)
     diffusion_model = PropertyGuidedDDPM(
-        latent_dim=config["latent_dim"],
-        te_dim=config["te_dim"],
-        num_layers=config["num_layers"],
-        hidden_dims=config["hidden_dims"],
+        input_dim=model_config["input_dim"],
+        te_dim=model_config["te_dim"],
+        num_layers=model_config["num_layers"],
+        hidden_dims=model_config["hidden_dims"],
         time_embedding=time_embedding,
         noise_scheduler=noise_scheduler,
         activation=activation,
@@ -210,10 +222,10 @@ def main():
 
     # Load the dataset, then subsample to num_samples if requested
     dataset = torch.load(args.dataset_path)
-    if len(dataset) < args.num_samples:
+    if args.num_samples is not None and len(dataset) < args.num_samples:
         raise ValueError(
-            f"Dataset contains {len(dataset)} samples which is fewer than the requested "
-            f"num_samples ({args.num_samples})."
+            f"Dataset contains {len(dataset)} samples which is fewer than the "
+            f"requested num_samples ({args.num_samples})."
         )
     dataset = dataset[: args.num_samples] if args.num_samples is not None else dataset
 
