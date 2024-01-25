@@ -107,10 +107,10 @@ class LinearNoiseScheduler(DiscreteNoiseScheduler):
     TODO Complete docstring
     """
 
-    def __init__(self, beta_0, beta_T, T):
-        self.beta_0 = beta_0
-        self.beta_T = beta_T
-        betas = np.linspace(beta_0, beta_T, T, endpoint=True, dtype=np.float32)
+    def __init__(self, beta_start, beta_stop, T):
+        self.beta_start = beta_start
+        self.beta_stop = beta_stop
+        betas = np.linspace(beta_start, beta_stop, T, endpoint=True, dtype=np.float32)
 
         super().__init__(betas)
 
