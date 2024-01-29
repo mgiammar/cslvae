@@ -1,0 +1,28 @@
+diffusion_model:
+  input_dim: 2
+  time_embedding_dim: 1  # This needs to have the same dimension as the time_embedding configuration
+  hidden_layers: 4
+  hidden_layer_sizes: [16, 16, 16, 16]
+  activation: ReLU
+  dropout: 0.0  # TODO: Implement dropout
+
+time_embedding:
+  embedding_type: identity
+  embedding_dim: 1
+
+noise_scheduler:
+  scheduler_type: linear
+  beta_start: 1e-5
+  beta_stop: 1e-2
+  T: 400
+  schedule: linear
+
+training:
+  batch_size: 32
+  epochs: 256
+  opt_class_name: Adam
+  opt_kwargs:
+    lr: 0.001
+  shuffle_dl: true
+  checkpoint_iterations: 100
+  logging_iterations: 10

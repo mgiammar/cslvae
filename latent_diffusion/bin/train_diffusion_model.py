@@ -41,6 +41,17 @@ def parse_arguments():
         default=None,
         help="Number of samples to use from the dataset. Default is to use all samples.",
     )
+    parser.add_argument(
+        "--normalize_dataset",
+        action="store_true",
+        required=False,
+        default=False,
+        help=(
+            "Whether to normalize the dataset to have zero mean and unit variance "
+            "before training diffusion model. Calculated mean and variance tensors are "
+            "saved to output directory before training. Default is False."
+        )
+    )
 
     # Model configuration arguments
     parser.add_argument(
@@ -228,6 +239,15 @@ def main():
             f"requested num_samples ({args.num_samples})."
         )
     dataset = dataset[: args.num_samples] if args.num_samples is not None else dataset
+    if args.normalize_dataset:
+        mean = dataset.mean(dim=0, keepdim=True)
+        sigma = dataset.std(dim=0, keepdim=True)
+
+        # Save the mean and sigma tensors to the output directory
+        torch.save(mean, outdir / "mean.pt")
+        torch.save(sigma, outdir / "sigma.pt")
+
+        dataset = (dataset - mean) / sigma
 
     # Choose the device to train on
     if args.device is None:

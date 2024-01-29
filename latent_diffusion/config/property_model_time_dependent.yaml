@@ -1,0 +1,31 @@
+property_model:
+  class_name: TimeDependentPropertyModel
+  input_dim: 64
+  time_embedding_dim: 8
+  output_dim: 2
+  hidden_layers: 2
+  hidden_layer_sizes: [128, 128]
+  activation: ReLU
+  dropout: 0.0  # TODO: Implement dropout
+
+noise_scheduler:
+  beta_start: 1e-5
+  beta_stop: 1e-2
+  T: 500
+  schedule: linear
+
+time_embedding:
+  embedding_dim: 8
+  embedding_type: sinusoidal
+
+training:
+  batch_size: 128
+  epochs: 1024
+  opt_class_name: Adam
+  opt_kwargs:
+    lr: 0.001
+  criterion: MSELoss
+  shuffle_train_dl: true
+  shuffle_test_dl: false
+  logging_iterations: 10
+  checkpoint_iterations: 100

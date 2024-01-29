@@ -1,0 +1,22 @@
+property_model:
+  class_name: PropertyModel
+  input_dim: 64
+  output_dim: 2
+  hidden_layers: 2
+  hidden_layer_shapes: [128, 128]
+  activation: ReLU
+  # activation_kwargs:  #  Optional
+  #   inplace: true
+  dropout: 0.0  # TODO: Implement dropout?
+
+training:
+  batch_size: 128
+  epochs: 1024
+  opt_class_name: Adam
+  opt_kwargs:
+    lr: 0.001
+  shuffle_train_dl: true
+  c: false
+  logging_iterations: 10
+  checkpoint_iterations: 100
+
