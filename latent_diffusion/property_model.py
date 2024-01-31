@@ -121,6 +121,11 @@ class PropertyModel(nn.Module):
     def forward(self, x):
         return self.sequential(x)
 
+    def to(self, device):
+        self.noise_scheduler.to(device)
+
+        return super().to(device)
+
     def _train_single_epoch(
         self, dataloader, epoch, optimizer, criterion, device
     ) -> float:
@@ -261,14 +266,14 @@ class PropertyModel(nn.Module):
             batch_size=batch_size,
             shuffle=shuffle_train_dl,
             num_workers=0,
-            pin_memory=True,
+            pin_memory=False,
         )
         test_dataloader = DataLoader(
             test_dataset,
             batch_size=batch_size,
             shuffle=shuffle_test_dl,
             num_workers=0,
-            pin_memory=True,
+            pin_memory=False,
         )
 
         # Iterate over epochs and train the model
@@ -404,6 +409,11 @@ class TimeDependentPropertyModel(PropertyModel):
         self.time_embedding = time_embedding
         self.noise_scheduler = noise_scheduler
 
+    def to(self, device):
+        self.noise_scheduler.to(device)
+        
+        return super().to(device)
+
     def _train_single_epoch(
         self, dataloader, epoch, optimizer, criterion, device
     ) -> float:
@@ -417,6 +427,9 @@ class TimeDependentPropertyModel(PropertyModel):
         # (batch_size, n) where n are the number of properties. The property vector
         # is still 2D even if n = 1.
         for batch_idx, (feature, target) in enumerate(dataloader):
+            feature = feature.to(device)
+            target = target.to(device)
+
             # Sample time points uniformly from the noise scheduler
             t = torch.randint(
                 low=0,
@@ -453,6 +466,9 @@ class TimeDependentPropertyModel(PropertyModel):
 
         with torch.no_grad():
             for batch_idx, (feature, target) in enumerate(dataloader):
+                feature = feature.to(device)
+                target = target.to(device)
+                
                 # Sample time points uniformly from the noise scheduler
                 t = torch.randint(
                     low=0,
