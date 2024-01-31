@@ -1,27 +1,28 @@
 diffusion_model:
   input_dim: 64
   time_embedding_dim: 8  # This needs to have the same dimension as the time_embedding configuration
-  hidden_layers: 4
-  hidden_layer_sizes: [128, 128, 128, 128]
-  activation: ReLU
-  dropout: 0.0  # TODO: Implement dropout
+  num_hidden_layers: 4
+  hidden_layer_shapes: [128, 128, 128, 128] 
+  # activation: ReLU
+  # dropout: 0.0  # TODO: Implement dropout
 
-time_embedding:
-  embedding_dim: 8
-  embedding_type: sinusoidal
+  time_embedding:
+    type: sinusoidal 
+    dim: 8
 
-noise_scheduler:
-  beta_start: 1e-5
-  beta_stop: 1e-2
-  T: 500
-  schedule: linear
+  noise_scheduler:
+    type: linear
+    beta_start: 0.0001 
+    beta_stop: 1.0
+    T: 1000
 
 training:
-  batch_size: 128
-  epochs: 1024
-  opt_class_name: Adam
-  opt_kwargs:
+  batch_size: 32
+  num_epochs: 10000
+  optimizer_cls: Adam
+  optimizer_kwargs:
     lr: 0.001
+  criterion: MSELoss
   shuffle_dl: true
   checkpoint_iterations: 100
   logging_iterations: 10

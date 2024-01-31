@@ -69,6 +69,12 @@ class DiscreteNoiseScheduler:
         """
         return zip(self.times, self.betas, self.alphas, self.alphas_cumprod)
 
+    def to(self, device):
+        self.times = self.times.to(device)
+        self.betas = self.betas.to(device)
+        self.alphas = self.alphas.to(device)
+        self.alphas_cumprod = self.alphas_cumprod.to(device)
+
     def add_noise_to_sample(
         self, sample: torch.Tensor, t: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:

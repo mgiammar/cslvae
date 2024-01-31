@@ -28,7 +28,7 @@ from latent_diffusion.utils import calculate_QED
 from latent_diffusion.utils import calculate_arbitrary_props
 from latent_diffusion.utils import array_iter_batch
 from latent_diffusion.dataset import LatentAndPropertyDataset
-from latent_diffusion.dataset import FingerprintAndPropertyDataset
+# from latent_diffusion.dataset import FingerprintAndPropertyDataset
 
 # Turn off rdkit loggging
 from rdkit import RDLogger
@@ -294,7 +294,7 @@ def calculate_vectors_and_properties(
             z[tensor_idx] = _z
 
             # Calculate properties of the molecule
-            _prop = _calc_prop_tensor(mols, logP, qed)
+            _prop = _calc_prop_tensor(mols, logP, qed, ring_count)
             props[tensor_idx] = torch.Tensor(_prop).to(device)
 
             # Print progress at each interval

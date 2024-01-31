@@ -89,7 +89,7 @@ class SinusoidalTimeEmbedding(TimeEmbedding):
         if isinstance(t, int):
             t = torch.ones((1,), dtype=torch.int32) * t
 
-        embedding = torch.pow(10000, torch.arange(self.dim) / self.dim)
+        embedding = torch.pow(10000, torch.arange(self.dim, device=t.device) / self.dim)
 
         # Shape broadcaatings for proper division
         embedding = torch.unsqueeze(embedding, dim=0)

@@ -139,6 +139,10 @@ class PropertyGuidedDDPM(nn.Module):
     def forward(self, x):
         return self.sequential(x)
 
+    def to(self, device):
+        self.noise_scheduler.to(device)
+        return super().to(device)
+
     def _single_denoise_step(
         self,
         x: torch.Tensor,
@@ -283,7 +287,7 @@ class PropertyGuidedDDPM(nn.Module):
         if epoch % checkpoint_iterations != 0:
             return
 
-        checkpoint_path = os.path.join(outdir, f"{WEIGHT_PREFIX}_{epoch}.pth")
+        checkpoint_path = os.path.join(outdir, "checkpoints", f"{WEIGHT_PREFIX}_{epoch}.pth")
         state_dict = {
             "epoch": epoch,
             "model_state_dict": self.state_dict(),
@@ -370,4 +374,5 @@ class PropertyGuidedDDPM(nn.Module):
             writer.close()
 
         # Save final model state
-        _train_checkpoint_function(1, "final", optimizer, metrics_dict, outdir)
+        self._train_checkpoint_function(1, "final", optimizer, metrics_dict, outdir)
+

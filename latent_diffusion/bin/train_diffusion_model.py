@@ -90,13 +90,13 @@ def parse_arguments():
         required=True,
         help="Name of the run. Used for naming the output files.",
     )
-    parser.add_argument(
-        "--log_to_tensorboard",
-        action="store_true",
-        required=False,
-        default=True,
-        help="Whether to log training metrics to TensorBoard.",
-    )
+    #parser.add_argument(
+    #    "--log_to_tensorboard",
+    #    action="store_true",
+    #    required=False,
+    #    default=True,
+    #    help="Whether to log training metrics to TensorBoard.",
+    #)
 
 
     return parser.parse_args()
@@ -119,6 +119,7 @@ def setup_output_directory(args: argparse.ArgumentParser, config: dict) -> str:
 
     # Make directory failing on pre-existence as to not overwrite existing data
     outdir.mkdir(parents=True, exist_ok=False)
+    (outdir / "checkpoints").mkdir(parents=True, exist_ok=False)
 
     # Export the arguments used to run the script
     with open(outdir / "diffusion_model_config.yaml", "w") as yaml_file:
@@ -155,7 +156,7 @@ def get_time_embedding_object(config) -> TimeEmbedding:
 def get_noise_scheduler_object(config: dict) -> DiscreteNoiseScheduler:
     # Create the noise scheduler
     ns_config = config["noise_scheduler"]
-    ns_class = ns_config["scheduler_type"]
+    ns_class = ns_config["schedule"]
     beta_0 = float(ns_config["beta_start"])
     beta_T = float(ns_config["beta_stop"])
     T = ns_config["T"]
@@ -173,39 +174,45 @@ def get_diffusion_model_object(
 ) -> PropertyGuidedDDPM:
     # Create the diffusion model
     model_config = config["diffusion_model"]
-    activation_cls = getattr(torch.nn, model_config["activation"])
-    activation_kwargs = model_config.get("activation_kwargs", {})
-    activation = activation_cls(**activation_kwargs)
-    diffusion_model = PropertyGuidedDDPM(
-        input_dim=model_config["input_dim"],
-        te_dim=model_config["te_dim"],
-        num_layers=model_config["num_layers"],
-        hidden_dims=model_config["hidden_dims"],
-        time_embedding=time_embedding,
-        noise_scheduler=noise_scheduler,
-        activation=activation,
+
+    diffusion_model = PropertyGuidedDDPM.parse_config(
+        model_config
     )
+
+    #activation_cls = getattr(torch.nn, model_config["activation"])
+    #activation_kwargs = model_config.get("activation_kwargs", {})
+    #activation = activation_cls(**activation_kwargs)
+    #diffusion_model = PropertyGuidedDDPM(
+    #    input_dim=model_config["input_dim"],
+    #    time_embedding_dim=model_config["time_embedding_dim"],
+    #    num_hidden_layers=model_config["hidden_layers"],
+    #    hidden_layer_shapes=model_config["hidden_layer_sizes"],
+    #    time_embedding=time_embedding,
+    #    noise_scheduler=noise_scheduler,
+    #    activation=activation,
+    #)
 
     return diffusion_model
 
 
-def construct_fit_kwargs(config: dict) -> dict:
+def construct_fit_kwargs(config: dict, outdir: str) -> dict:
     """TODO docstring"""
     # NOTE: dict.get method is employed for some args to allow for default values
-    batch_size = config["batch_size"]
-    num_epochs = config["num_epochs"]
-    shuffle_dl = config.get("shuffle_dl", True)
-    logging_iterations = config.get("logging_iterations", 20)
-    checkpoint_iterations = config.get("checkpoint_iterations", 100)
+    fit_config = config["training"]
+    batch_size = fit_config["batch_size"]
+    num_epochs = fit_config["num_epochs"]
+    shuffle_dl = fit_config.get("shuffle_dl", True)
+    logging_iterations = fit_config.get("logging_iterations", 20)
+    checkpoint_iterations = fit_config.get("checkpoint_iterations", 100)
 
     # Optimizer arguments
-    optimizer_cls = getattr(torch.optim, config["optimizer"])
-    optimizer_kwargs = config.get("optimizer_kwargs", {})
+    optimizer_cls = getattr(torch.optim, fit_config["optimizer_cls"])
+    optimizer_kwargs = fit_config.get("optimizer_kwargs", {})
 
     # Criterion arguments
-    criterion_cls = getattr(torch.nn, config["criterion"])
+    criterion_cls = getattr(torch.nn, fit_config["criterion"])
 
-    log_to_tensorboard = config.get("log_to_tensorboard", True)
+    log_to_tensorboard = fit_config.get("log_to_tensorboard", True)
 
     return {
         "batch_size": batch_size,
@@ -244,8 +251,8 @@ def main():
         sigma = dataset.std(dim=0, keepdim=True)
 
         # Save the mean and sigma tensors to the output directory
-        torch.save(mean, outdir / "mean.pt")
-        torch.save(sigma, outdir / "sigma.pt")
+        torch.save(mean, outdir + "/" + args.run_name + "_mean.pt")
+        torch.save(sigma, outdir + "/" + args.run_name + "_sigma.pt")
 
         dataset = (dataset - mean) / sigma
 
@@ -255,11 +262,13 @@ def main():
     else:
         device = torch.device(args.device)
 
-    time_embedding = get_time_embedding_object(config)
-    noise_scheduler = get_noise_scheduler_object(config)
-    diffusion_model = get_diffusion_model_object(
-        config, time_embedding, noise_scheduler
-    )
+    # time_embedding = get_time_embedding_object(config)
+    # noise_scheduler = get_noise_scheduler_object(config)
+    # diffusion_model = get_diffusion_model_object(
+    #    config, time_embedding, noise_scheduler
+    # )
+    # diffusion_model = get_diffusion_model_object(config)
+    diffusion_model = PropertyGuidedDDPM.parse_config(config["diffusion_model"])
     diffusion_model = diffusion_model.to(device)
 
     # Load pre-trained weights, if provided
@@ -269,11 +278,10 @@ def main():
 
     # Parsing items from the config dictionary to pass to the fit method, then call
     # fit method
-    fit_kwargs = construct_fit_kwargs(config)
+    fit_kwargs = construct_fit_kwargs(config, outdir)
     diffusion_model.fit(
         dataset=dataset,
-        outdir=outdir,
-        log_to_tensorboard=args.log_to_tensorboard**fit_kwargs,
+        **fit_kwargs,
     )
 
 
