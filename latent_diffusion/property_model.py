@@ -116,6 +116,8 @@ class PropertyModel(nn.Module):
 
         modules.append(nn.Linear(hidden_layer_shapes[-1], output_dim))
 
+        # TODO: Have flag for this activation (classification)
+        modules.append(nn.Softmax(dim=1))
         self.sequential = nn.Sequential(*modules)
 
     def forward(self, x):
@@ -493,6 +495,38 @@ class TimeDependentPropertyModel(PropertyModel):
 
         return np.mean(tmp_loss)
 
+    def _compute_test_accuracy(self, dataloader, device):
+        """Computes the top-1 (argmax) accuracy for classification"""
+        tmp_acc = 0
+        tot_items = 0
+
+        with torch.no_grad():
+            for batch_idx, (feature, target) in enumerate(dataloader):
+                feature = feature.to(device)
+                target = target.to(device)
+
+                t = torch.randint(
+                    low=0,
+                    high=self.noise_scheduler.T,
+                    size=(feature.shape[0],),
+                    device=device,
+                )
+                t_emb = self.time_embedding.get_embedding(t).to(device)
+
+                noised_feature, eps = self.noise_scheduler.add_noise_to_sample(
+                    feature, t
+                )
+                model_input = torch.cat([noised_feature, t_emb], dim=1)
+
+                prediction = self.forward(model_input)
+                prediction_class = prediction.argmax(dim=1)
+
+                correct = (target == prediction_class).sum().item()
+                tmp_acc += correct
+                tot_items += target.shape[0]
+
+        return tmp_acc / tot_items
+
     def fit(
         self,
         dataset: Dataset,
@@ -544,9 +578,11 @@ class TimeDependentPropertyModel(PropertyModel):
                 train_dataloader, epoch, optimizer, criterion, device
             )
             test_loss = self._compute_test_loss(test_dataloader, criterion, device)
+            train_accuracy = self._compute_test_accuracy(train_dataloader, device)
+            test_accuracy = self._compute_test_accuracy(test_dataloader, device)
 
             # Construct metrics dictionary
-            metrics_dict = {"train_loss": train_loss, "test_loss": test_loss}
+            metrics_dict = {"train_loss": train_loss, "test_loss": test_loss, "train_top_accuracy": train_accuracy, "test_accuracy": test_accuracy}
 
             # Logging and checkpointing functions
             self._train_logging_function(

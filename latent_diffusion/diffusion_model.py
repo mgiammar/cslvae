@@ -174,7 +174,7 @@ class PropertyGuidedDDPM(nn.Module):
         model_input = torch.cat([x, t], dim=1)
 
         # Compute predicted noise for the sample and subtract noise
-        eps = self.model(model_input)
+        eps = self(model_input)
         x_new = subtract_scaled_noise(x, eps, alphas, alphas_tilde)
 
         # # TODO
@@ -199,12 +199,15 @@ class PropertyGuidedDDPM(nn.Module):
         for t, beta, alpha, alpha_tilde in reversed(list(self.noise_scheduler)):
             # Steps go from t --> t-1, so skip t = 0
             if t != 0:
-                x = self._single_denoise_step(x, t, alpha, alpha_tilde)
+                _t = torch.ones(x.shape[0]) * t
+                x = self._single_denoise_step(x, _t, alpha, alpha_tilde)
 
             # Add noise (denoising step draws from new distribution) if not last step
             if t > 1:
                 eps = torch.randn_like(x)
                 x = x + torch.sqrt(beta) * eps
+
+        return x
 
     def _train_single_epoch(self, dataloader, optimizer, criterion, device) -> float:
         """Takes a single training step where ???? TODO Complete docstring"""

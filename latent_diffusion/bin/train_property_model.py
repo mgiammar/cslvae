@@ -245,19 +245,20 @@ def main():
         mean = dataset.tensors[0].mean(dim=0, keepdim=True)
         sigma = dataset.tensors[0].std(dim=0, keepdim=True)
 
-        y_min = dataset.tensors[1].min(dim=0, keepdim=True).values
-        y_max = dataset.tensors[1].max(dim=0, keepdim=True).values
+        # y_min = dataset.tensors[1].min(dim=0, keepdim=True).values
+        # y_max = dataset.tensors[1].max(dim=0, keepdim=True).values
 
         torch.save(mean, outdir + "/" + "z_mean.pt")
         torch.save(sigma, outdir + "/" + "z_sigma.pt")
         
-        torch.save(y_min, outdir + "/" + "y_min.pt")
-        torch.save(y_max, outdir + "/" + "y_max.pt")
+        # torch.save(y_min, outdir + "/" + "y_min.pt")
+        # torch.save(y_max, outdir + "/" + "y_max.pt")
         
         z = (dataset.tensors[0] - mean ) / sigma  # Transform to mean 0 and std of 1 along dims
-        y = (dataset.tensors[1] - y_min) / (y_max - y_min)  # Transform y to [0, 1]
-        y = (y * 2) - 1  # Transform y to [-1, 1]
+        # y = (dataset.tensors[1] - y_min) / (y_max - y_min)  # Transform y to [0, 1]
+        # y = (y * 2) - 1  # Transform y to [-1, 1]
 
+        y = dataset.tensors[1]
         dataset = TensorDataset(z, y)
 
         
