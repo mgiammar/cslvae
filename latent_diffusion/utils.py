@@ -120,9 +120,43 @@ def subtract_scaled_noise(
     Returns:
         (torch.Tensor) x_new: The single-step denoised sample
     """
+    # TODO: Move this into the sampling loop (unncessary to have util function)
     eps = eps * (1 - alphas)
     eps = eps / torch.sqrt(1 - alphas_tilde)
     x_new = x - eps
     x_new = x_new / torch.sqrt(alphas)
 
     return x_new
+
+
+def scale_betas_for_zero_snr(betas: torch.Tensor) -> torch.Tensor:
+    """Implements the method in https://arxiv.org/pdf/2305.08891.pdf for scaling beta
+    values to achieve a zero SNR at t=T for some noise schedule.
+
+    Arguments:
+        (torch.Tensor) betas: The beta values to scale
+
+    Returns:
+        (torch.Tensor) betas_scaled: The scaled beta values
+    """
+    alphas = 1 - betas
+    alphas_bar = alphas.cumprod(0)
+    alphas_bar_sqrt = torch.sqrt(alphas_bar)
+
+    # Store old values
+    alphas_bar_sqrt_0 = alphas_bar_sqrt[0].clone()
+    alphas_bar_sqrt_T = alphas_bar_sqrt[-1].clone()
+
+    # Shift so last timestep has value of zero
+    alphas_bar_sqrt -= alphas_bar_sqrt_T
+
+    # Scale linearly such that first timestep remains the same
+    alphas_bar_sqrt *= alphas_bar_sqrt_0 / (alphas_bar_sqrt_0 - alphas_bar_sqrt_T)
+
+    # Convert back to beta values
+    alphas_bar = alphas_bar_sqrt ** 2
+    alphas = alphas_bar[:1] / alphas_bar[:-1]
+    alphas = torch.cat([alphas_bar[0:1], alphas])
+    betas = 1 - alphas
+
+    return betas
