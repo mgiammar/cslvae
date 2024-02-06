@@ -4,6 +4,8 @@ from typing import Union, Tuple
 import torch
 import numpy as np
 
+from latent_diffusion.utils import scale_betas_for_zero_snr
+
 
 class DiscreteNoiseScheduler:
     """Base noise scheduler class which accepts in a list of betas for for defining the
@@ -30,10 +32,11 @@ class DiscreteNoiseScheduler:
         beta_start = float(config["beta_start"])
         beta_stop = float(config["beta_stop"])
         T = int(config["T"])
+        enforce_zero_snr = config.get("enforce_zero_snr", False)
 
         _type = config["type"]
         if _type == "linear":
-            return LinearNoiseScheduler(beta_start, beta_stop, T)
+            return LinearNoiseScheduler(beta_start, beta_stop, T, enforce_zero_snr)
         else:
             raise ValueError(f"Unrecognized noise scheduler type: {_type}")
 
@@ -49,7 +52,7 @@ class DiscreteNoiseScheduler:
 
         if betas.ndim != 1:
             raise ValueError(
-                f"betas must be 1-dimensional. GOt {betas.ndim} dimensions."
+                f"betas must be 1-dimensional. Got {betas.ndim} dimensions."
             )
 
         # Setup attributes
@@ -113,10 +116,19 @@ class LinearNoiseScheduler(DiscreteNoiseScheduler):
     TODO Complete docstring
     """
 
-    def __init__(self, beta_start, beta_stop, T):
+    def __init__(
+        self,
+        beta_start: float,
+        beta_stop: float,
+        T: int,
+        enforce_zero_snr: bool = False,
+    ):
         self.beta_start = beta_start
         self.beta_stop = beta_stop
         betas = np.linspace(beta_start, beta_stop, T, endpoint=True, dtype=np.float32)
+
+        if enforce_zero_snr:
+            betas = scale_betas_for_zero_snr(betas)
 
         super().__init__(betas)
 

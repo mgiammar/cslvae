@@ -147,8 +147,9 @@ class PropertyGuidedDDPM(nn.Module):
         self,
         x: torch.Tensor,
         t: torch.Tensor,
-        alphas: torch.Tensor,
-        alphas_tilde: torch.Tensor,
+        # betas: torch.Tensor,
+        # alphas: torch.Tensor,
+        # alphas_bar: torch.Tensor,
     ) -> torch.Tensor:
         """Performs a single denoising step on a sample x from time t to t-1. Note that
         time must be already cast to a tensor; integer t is not accepted.
@@ -158,9 +159,10 @@ class PropertyGuidedDDPM(nn.Module):
         Arguments:
             (torch.Tensor) x: The sample tensor to denoise
             (torch.Tensor) t: The time-step in the noising process to denoise from.
-            (torch.Tensor) alphas: The alphas coefficients from the noise scheduler
-            (torch.Tensor) alphas_tilde: The alphas_tilde coefficients from the noise
-                scheduler
+            # (torch.Tensor) betas: The beta coefficients from the noise scheduler.
+            # (torch.Tensor) alphas: The alphas coefficients from the noise scheduler
+            # (torch.Tensor) alphas_bar: The alphas_tilde coefficients from the noise
+            #     scheduler
 
         Returns:
             (torch.Tensor) x_new: The single-step denoised sample with the same shape as
@@ -170,12 +172,30 @@ class PropertyGuidedDDPM(nn.Module):
             t, torch.Tensor
         ), f"t must be of type torch.Tensor, not {type(t)}"
 
-        t = self.time_embedding.get_embedding(t)
-        model_input = torch.cat([x, t], dim=1)
+        # Get noise scheduler coefficients
+        betas = self.noise_scheduler.betas[t]
+        alphas = self.noise_scheduler.alphas[t]
+        alphas_bar = self.noise_scheduler.alphas_cumprod[t]
+        alphas_bar_m1 = self.noise_scheduler.alphas_cumprod[t - 1]
 
-        # Compute predicted noise for the sample and subtract noise
-        eps = self(model_input)
-        x_new = subtract_scaled_noise(x, eps, alphas, alphas_tilde)
+        # Get time embedding and concatenate with latent tensor
+        t_emb = self.time_embedding.get_embedding(t)
+        model_input = torch.cat([x, t_emb], dim=1)
+
+        # Compute predicted v formula (from https://arxiv.org/pdf/2305.08891.pdf)
+        # and convert to an x_0 prediction
+        v_pred = self(model_input)
+        x_0_pred = x * torch.sqrt(alphas_bar) - v_pred * torch.sqrt(1 - alphas_bar)
+
+        # Now, subtract the predicted "noise" based on the scaling coefficients
+        coeff_0 = betas * torch.sqrt(alphas_bar_m1) / (1 - alphas_bar)
+        coeff_1 = torch.sqrt(alphas) * (1 - alphas_bar_m1) / (1 - alphas_bar)
+
+        mu_t = x_0_pred * coeff_0 + x * coeff_1d
+
+        # Add scaled noise to sample again
+        eps = torch.randn_like(x)
+        x_new = mu_t + torch.sqrt(betas) * eps
 
         # # TODO
         # # Use property prediction model to estimate property gradient (if provided)
@@ -196,21 +216,20 @@ class PropertyGuidedDDPM(nn.Module):
             (torch.Tensor) x_new: The denoised sample with the same shape as x.
         """
         # Iterate automatically over the noise scheduler, in reverse order
-        for t, beta, alpha, alpha_tilde in reversed(list(self.noise_scheduler)):
-            # Steps go from t --> t-1, so skip t = 0
-            if t != 0:
-                _t = torch.ones(x.shape[0]) * t
-                x = self._single_denoise_step(x, _t, alpha, alpha_tilde)
-
-            # Add noise (denoising step draws from new distribution) if not last step
-            if t > 1:
-                eps = torch.randn_like(x)
-                x = x + torch.sqrt(beta) * eps
+        # TODO: Allow for classifier guidance
+        for t in range(self.noise_scheduler.T - 1, 1, -1):
+            t = torch.ones(x.shape[0]) * t
+            x = self._single_denoise_step(x, t)
 
         return x
 
     def _train_single_epoch(self, dataloader, optimizer, criterion, device) -> float:
-        """Takes a single training step where ???? TODO Complete docstring"""
+        """Takes a single training step where ????
+        
+        Does v prediction as posed by https://arxiv.org/pdf/2305.08891.pdf
+
+        TODO Complete docstring
+        """
         tmp_loss = []
         for batch_idx, batch in enumerate(dataloader):
             # Sample time points uniformly from the noise scheduler and get embedding
@@ -226,8 +245,11 @@ class PropertyGuidedDDPM(nn.Module):
             batch_noised, eps = self.noise_scheduler.add_noise_to_sample(batch, t)
             model_input = torch.cat([batch_noised, t_emb], dim=1).float()
 
-            # Predict the noise from the held model
-            pred_eps = self(model_input)
+            true_v = torch.sqrt(1 - self.noise_scheduler.alphas_cumprod[t]) * eps
+            true_v = true_v - torch.sqrt(1 - self.noise_scheduler.alphas_cumprod[t]) * batch
+
+            # Predict v from the held model
+            pred_v = self(model_input)
 
             # Compute loss and take gradient step
             optimizer.zero_grad()
@@ -290,7 +312,7 @@ class PropertyGuidedDDPM(nn.Module):
         if epoch % checkpoint_iterations != 0:
             return
 
-        checkpoint_path = os.path.join(outdir, "checkpoints", f"{WEIGHT_PREFIX}_{epoch}.pth")
+        checkpoint_path = os.path.join(outdir, "checkpoints", f"{WEIGHT_PREFIX}_{epoch}.pt")
         state_dict = {
             "epoch": epoch,
             "model_state_dict": self.state_dict(),
